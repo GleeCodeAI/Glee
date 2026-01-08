@@ -9,6 +9,15 @@ DuckDB (memory.duckdb):
 - stats: Key-value stats/metadata
 """
 
+from typing import TypedDict
+
+
+class TableSchema(TypedDict):
+    """Schema definition for a database table."""
+
+    table: str
+    indexes: list[str]
+
 # =============================================================================
 # SQLite Schemas (glee.db)
 # =============================================================================
@@ -48,7 +57,7 @@ LOGS_INDEXES = [
 ]
 
 # All SQLite schemas
-SQLITE_SCHEMAS = {
+SQLITE_SCHEMAS: dict[str, TableSchema] = {
     "agent_logs": {
         "table": AGENT_LOGS_TABLE,
         "indexes": AGENT_LOGS_INDEXES,
@@ -88,7 +97,7 @@ CREATE TABLE IF NOT EXISTS stats (
 STATS_INDEXES: list[str] = []
 
 # All DuckDB schemas
-DUCKDB_SCHEMAS = {
+DUCKDB_SCHEMAS: dict[str, TableSchema] = {
     "memories": {
         "table": MEMORIES_TABLE,
         "indexes": MEMORIES_INDEXES,
