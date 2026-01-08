@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Glee is a Multi-Agent Code Collaboration Platform - a CLI tool that orchestrates multiple AI coding agents (Claude, Codex, Gemini) for code reviews and collaborative coding.
+Glee is the Conductor for Your AI Orchestra - an orchestration layer for AI coding agents (Claude, Codex, Gemini) with shared memory, context injection, and multi-agent collaboration.
 
 ## Commands
 

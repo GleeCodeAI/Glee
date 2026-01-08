@@ -1,8 +1,8 @@
 # Glee
 
-> Multi-Agent Code Collaboration Platform
+> The Conductor for Your AI Orchestra
 
-Multiple AIs working together like a Glee Club, making coding joyful.
+An orchestration layer for AI coding agents with shared memory, context injection, and multi-agent collaboration.
 
 ## Quick Start
 

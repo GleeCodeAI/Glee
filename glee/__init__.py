@@ -1,3 +1,3 @@
-"""Glee - Multi-Agent Code Collaboration Platform"""
+"""Glee - The Conductor for Your AI Orchestra"""
 
 __version__ = "0.1.0"

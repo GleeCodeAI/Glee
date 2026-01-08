@@ -1,4 +1,4 @@
-# Glee - Multi-Agent Code Collaboration Platform
+# Glee - The Conductor for Your AI Orchestra
 
 > Glee (n.): A glee club is a group of voices singing in harmony — multiple AI agents collaborating to create better code.
 

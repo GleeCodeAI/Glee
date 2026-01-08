@@ -13,7 +13,7 @@ from glee.logging import setup_logging
 
 app = typer.Typer(
     name="glee",
-    help="Multi-Agent Code Collaboration Platform",
+    help="The Conductor for Your AI Orchestra",
     no_args_is_help=True,
 )
 console = Console()
