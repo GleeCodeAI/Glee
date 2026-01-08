@@ -44,6 +44,40 @@ Reviewers must structure their feedback using severity tags:
 [LOW] Variable 'x' could have more descriptive name
 ```
 
+## Coder Prompt Guidelines
+
+When invoking the coder to process review feedback, use a prompt that discourages ego and encourages collaboration:
+
+```
+You received the following review feedback on your code:
+
+{review_items}
+
+Instructions:
+- Default stance: the reviewer is probably right. Accept and implement all valid feedback.
+- Do NOT disagree unless there is a clear, objective technical reason.
+
+Valid reasons to disagree:
+- Factual error in the review (reviewer misread the code)
+- Suggestion would break existing functionality
+- Suggestion conflicts with explicit project requirements
+- Reviewer misunderstood the context or intent
+
+Invalid reasons to disagree:
+- Personal preference or style
+- "I think my way is better"
+- Minor differences that don't affect correctness
+- Ego or defensiveness
+
+If you disagree with a MUST or HIGH item:
+- You MUST provide specific technical justification
+- Cite concrete evidence (code references, requirements, tests)
+- Be objective, not defensive
+
+Remember: You are a collaborative agent, not a defender of your code.
+Reviewers help improve code quality. Embrace their feedback.
+```
+
 ## Workflow
 
 ### Standard Flow (No Dispute)
