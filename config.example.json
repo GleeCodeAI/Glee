@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "glee": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/clean-code-agent", "python", "-m", "glee"]
+    }
+  },
+  "customSlashCommands": {
+    "glee-review": {
+      "description": "Start a code review using Codex",
+      "prompt": "Call mcp__glee__start_review to get a code review from Codex. Based on the feedback, fix any issues and call the tool again until status is 'approved' or 'max_iterations'."
+    }
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If code was modified (Edit/Write tools were used), ask the user: 'Do you want me to run a Codex review?' If they say yes, call mcp__glee__start_review."
+          }
+        ]
+      }
+    ]
+  }
+}

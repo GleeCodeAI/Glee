@@ -84,8 +84,10 @@ Claude Code 在长时间工作后，由于 context 累积，可能无法发现�
 
 | 组件 | 选择 | 理由 |
 |------|------|------|
-| 语言 | TypeScript | 类型安全，与 Claude Code 同生态 |
+| 语言 | Python | 生态丰富，LangGraph 原生支持 |
+| 包管理 | uv | 快速、现代 |
 | Agent 框架 | LangGraph | 状态管理、流程编排、human-in-the-loop、可扩展 |
+| 类型验证 | Pydantic | 强类型、易用 |
 | 接口层 | MCP Server | Claude Code 原生支持 |
 | 持久化 | 本地 JSON / TiDB Cloud | 分层存储，可选升级 |
 
@@ -858,9 +860,110 @@ Claude Code: Code review 通过！
 
 ---
 
-## 下一步
+## 安装与使用
 
-1. 创建 MCP Server 项目
-2. 实现 codex CLI wrapper
-3. 实现 review_code 和 review_diff tools
-4. 测试端到端流程
+### 1. 安装依赖
+
+```bash
+cd /path/to/clean-code-agent
+uv sync
+```
+
+### 2. 配置 Claude Code MCP
+
+在 `~/.claude/settings.json` 或项目 `.claude/settings.json` 中添加：
+
+```json
+{
+  "mcpServers": {
+    "glee": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/clean-code-agent", "python", "-m", "glee"]
+    }
+  }
+}
+```
+
+### 3. (可选) 配置 Stop Hook
+
+在 settings 中添加 Stop hook，每次 Claude Code 完成响应时询问是否需要 review：
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/clean-code-agent/scripts/ask-review.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 4. 使用
+
+在 Claude Code 中使用 MCP 工具：
+
+```
+# 启动 review（自动检测改动的文件）
+调用 mcp__glee__start_review
+
+# 指定文件进行 review
+调用 mcp__glee__start_review，参数 files: ["src/index.ts", "src/utils.ts"]
+
+# 查看 review 状态
+调用 mcp__glee__get_review_status
+
+# 回答问题后继续 review
+调用 mcp__glee__continue_review，参数 reviewId: "xxx", humanAnswer: "用户的回答"
+```
+
+---
+
+## 项目结构
+
+```
+clean-code-agent/
+├── glee/
+│   ├── __init__.py           # 包初始化
+│   ├── __main__.py           # 入口文件
+│   ├── types.py              # 类型定义 (Pydantic)
+│   ├── server.py             # MCP Server
+│   ├── services/
+│   │   └── codex_cli.py      # Codex CLI 封装
+│   ├── state/
+│   │   ├── session.py        # 会话管理
+│   │   └── storage.py        # 存储抽象
+│   └── graph/
+│       └── review_graph.py   # LangGraph 工作流
+├── scripts/
+│   └── ask-review.sh         # Stop hook 脚本
+├── docs/
+│   └── PRD.md                # 本文档
+├── .glee/                    # 运行时数据
+│   └── sessions/             # Review 会话历史
+├── pyproject.toml            # Python 项目配置
+├── uv.lock                   # 依赖锁定
+└── config.example.json       # 配置示例
+```
+
+---
+
+## 开发状态
+
+- [x] PRD 设计
+- [x] TypeScript + LangGraph 项目初始化
+- [x] Codex CLI wrapper
+- [x] LangGraph review flow
+- [x] MCP Server 接口
+- [x] Session 状态存储
+- [x] Stop hook 脚本
+- [ ] 端到端测试
+- [ ] TiDB Cloud 存储支持
+- [ ] YOLO 模式
