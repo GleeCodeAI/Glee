@@ -2,9 +2,13 @@
 
 import shutil
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+from glee.logging import get_agent_logger
 
 
 @dataclass
@@ -14,6 +18,7 @@ class AgentResult:
     output: str
     error: str | None = None
     exit_code: int = 0
+    run_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=lambda: {})
 
     @property
@@ -28,8 +33,9 @@ class BaseAgent(ABC):
     command: str
     capabilities: list[str]
 
-    def __init__(self):
+    def __init__(self, project_path: Path | None = None):
         self._available: bool | None = None
+        self.project_path = project_path
 
     def is_available(self) -> bool:
         """Check if the agent CLI is installed and available."""
@@ -65,10 +71,24 @@ class BaseAgent(ABC):
     def _run_subprocess(
         self,
         args: list[str],
+        prompt: str = "",
         timeout: int = 300,
         cwd: str | None = None,
     ) -> AgentResult:
-        """Run a subprocess and capture output."""
+        """Run a subprocess and capture output.
+
+        Args:
+            args: Command arguments to run.
+            prompt: The prompt sent to the agent (for logging).
+            timeout: Timeout in seconds.
+            cwd: Working directory.
+
+        Returns:
+            AgentResult with output, error, and run_id for log lookup.
+        """
+        start_time = time.time()
+        run_id = None
+
         try:
             result = subprocess.run(
                 args,
@@ -77,20 +97,63 @@ class BaseAgent(ABC):
                 timeout=timeout,
                 cwd=cwd,
             )
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Log to SQLite
+            agent_logger = get_agent_logger(self.project_path) if self.project_path else get_agent_logger()
+            if agent_logger:
+                run_id = agent_logger.log(
+                    agent=self.name,
+                    prompt=prompt,
+                    output=result.stdout,
+                    raw=result.stdout,
+                    error=result.stderr if result.returncode != 0 else None,
+                    exit_code=result.returncode,
+                    duration_ms=duration_ms,
+                )
+
             return AgentResult(
                 output=result.stdout,
                 error=result.stderr if result.returncode != 0 else None,
                 exit_code=result.returncode,
+                run_id=run_id,
             )
         except subprocess.TimeoutExpired:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Command timed out after {timeout} seconds"
+
+            agent_logger = get_agent_logger(self.project_path) if self.project_path else get_agent_logger()
+            if agent_logger:
+                run_id = agent_logger.log(
+                    agent=self.name,
+                    prompt=prompt,
+                    error=error_msg,
+                    exit_code=-1,
+                    duration_ms=duration_ms,
+                )
+
             return AgentResult(
                 output="",
-                error=f"Command timed out after {timeout} seconds",
+                error=error_msg,
                 exit_code=-1,
+                run_id=run_id,
             )
         except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            agent_logger = get_agent_logger(self.project_path) if self.project_path else get_agent_logger()
+            if agent_logger:
+                run_id = agent_logger.log(
+                    agent=self.name,
+                    prompt=prompt,
+                    error=str(e),
+                    exit_code=-1,
+                    duration_ms=duration_ms,
+                )
+
             return AgentResult(
                 output="",
                 error=str(e),
                 exit_code=-1,
+                run_id=run_id,
             )

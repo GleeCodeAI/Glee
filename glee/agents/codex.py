@@ -26,7 +26,7 @@ class CodexAgent(BaseAgent):
             prompt,
         ]
 
-        result = self._run_subprocess(args, timeout=kwargs.get("timeout", 300))
+        result = self._run_subprocess(args, prompt=prompt, timeout=kwargs.get("timeout", 300))
 
         # Parse JSON output if available
         if result.success and result.output:

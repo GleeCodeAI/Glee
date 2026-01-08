@@ -9,7 +9,7 @@ from loguru import logger
 from rich.console import Console
 from rich.table import Table
 
-from glee.logging import setup_logging
+from glee.logging import get_agent_logger, setup_logging
 
 app = typer.Typer(
     name="glee",
@@ -26,6 +26,8 @@ def main_callback() -> None:
     glee_dir = project_path / ".glee"
     if glee_dir.exists():
         setup_logging(project_path)
+        # Initialize agent logger for run tracking
+        get_agent_logger(project_path)
     else:
         setup_logging(None)  # Console only
 
@@ -566,6 +568,96 @@ def logs_stats():
     console.print("[bold]By Level:[/bold]")
     for level, count in sorted(stats["by_level"].items()):
         console.print(f"  {level}: {count}")
+
+
+@logs_app.command("agents")
+def logs_agents(
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Filter by agent (claude, codex, gemini)"),
+    success_only: bool = typer.Option(False, "--success", "-s", help="Only show successful runs"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+):
+    """Show agent run history."""
+    import os
+    from pathlib import Path
+
+    from glee.logging import query_agent_logs
+
+    project_path = Path(os.getcwd())
+    results = query_agent_logs(project_path, agent=agent, success_only=success_only, limit=limit)
+
+    if not results:
+        console.print("[yellow]No agent logs found[/yellow]")
+        return
+
+    table = Table(title=f"Agent Logs (last {len(results)})")
+    table.add_column("ID", style="cyan", width=8)
+    table.add_column("Time", style="dim", width=19)
+    table.add_column("Agent", style="green", width=8)
+    table.add_column("Duration", style="yellow", width=8)
+    table.add_column("Status", width=8)
+    table.add_column("Prompt", style="white", max_width=40, overflow="ellipsis")
+
+    for log in results:
+        timestamp = log["timestamp"][:19]
+        duration = f"{log['duration_ms']}ms" if log["duration_ms"] else "-"
+        status = "[green]OK[/green]" if log["success"] else "[red]FAIL[/red]"
+        prompt = (log["prompt"][:37] + "...") if len(log["prompt"]) > 40 else log["prompt"]
+        prompt = prompt.replace("\n", " ")
+
+        table.add_row(
+            log["id"],
+            timestamp,
+            log["agent"],
+            duration,
+            status,
+            prompt,
+        )
+
+    console.print(table)
+
+
+@logs_app.command("detail")
+def logs_detail(
+    log_id: str = typer.Argument(..., help="Log ID to show details for"),
+    raw: bool = typer.Option(False, "--raw", "-r", help="Show raw output instead of parsed"),
+):
+    """Show details of a specific agent log."""
+    import os
+    from pathlib import Path
+
+    from glee.logging import get_agent_log
+
+    project_path = Path(os.getcwd())
+    log = get_agent_log(project_path, log_id)
+
+    if not log:
+        console.print(f"[red]Log {log_id} not found[/red]")
+        raise typer.Exit(1)
+
+    console.print("[bold]Agent Log Details[/bold]")
+    console.print(f"  ID: [cyan]{log['id']}[/cyan]")
+    console.print(f"  Time: {log['timestamp']}")
+    console.print(f"  Agent: [green]{log['agent']}[/green]")
+    console.print(f"  Duration: {log['duration_ms']}ms")
+    status = "[green]Success[/green]" if log["success"] else "[red]Failed[/red]"
+    console.print(f"  Status: {status}")
+    console.print()
+
+    console.print("[bold]Prompt:[/bold]")
+    console.print(log["prompt"])
+    console.print()
+
+    if raw and log.get("raw"):
+        console.print("[bold]Raw Output:[/bold]")
+        console.print(log["raw"])
+    elif log.get("output"):
+        console.print("[bold]Output:[/bold]")
+        console.print(log["output"])
+
+    if log.get("error"):
+        console.print()
+        console.print("[bold red]Error:[/bold red]")
+        console.print(log["error"])
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ class ClaudeAgent(BaseAgent):
             for tool in kwargs["allowedTools"]:
                 args.extend(["--allowedTools", tool])
 
-        return self._run_subprocess(args, timeout=kwargs.get("timeout", 300))
+        return self._run_subprocess(args, prompt=prompt, timeout=kwargs.get("timeout", 300))
 
     def run_review(self, files: list[str], focus: list[str] | None = None) -> AgentResult:
         """Run a code review with Claude.
