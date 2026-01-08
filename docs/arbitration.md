@@ -66,6 +66,7 @@ Done
 
 A dispute occurs when the coder disagrees with a **mandatory** item (MUST or HIGH).
 
+**With judge configured:**
 ```
 Coder disagrees with MUST or HIGH item
               ↓
@@ -75,6 +76,27 @@ Coder disagrees with MUST or HIGH item
      │   1. Use AI judge      │
      │   2. I'll decide       │
      │   3. Discard opinion   │
+     └────────────────────────┘
+              ↓
+        User selects
+              ↓
+     Execute chosen path
+```
+
+**Without judge configured:**
+```
+Coder disagrees with MUST or HIGH item
+              ↓
+     ┌────────────────────────┐
+     │   How to resolve?      │
+     │                        │
+     │   1. I'll decide       │
+     │   2. Discard opinion   │
+     │                        │
+     │   (yellow) Tip: You    │
+     │   can assign a judge   │
+     │   with: glee connect   │
+     │   <agent> --role judge │
      └────────────────────────┘
               ↓
         User selects
