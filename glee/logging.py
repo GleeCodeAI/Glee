@@ -1,11 +1,15 @@
 """Logging configuration for Glee."""
 
 import sys
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
+if TYPE_CHECKING:
+    from loguru import Logger
 
-def setup_logging() -> logger:
+
+def setup_logging() -> "Logger":
     """Configure loguru logging."""
     logger.remove()
 
