@@ -1,4 +1,4 @@
-.PHONY: install sync run dev migrate migrate-new d-up d-down d-logs d-build d-codex-auth clean
+.PHONY: install sync dev stdio d-up d-down d-logs d-build d-codex-auth clean
 
 # Install dependencies
 install:
@@ -6,13 +6,13 @@ install:
 
 sync: install
 
-# Run MCP server (stdio mode)
-run:
-	uv run python -m glee
-
-# Run MCP server (SSE mode)
+# Run MCP server (SSE mode for local development)
 dev:
 	GLEE_TRANSPORT=sse uv run python -m glee
+
+# Run MCP server (stdio mode - called by Claude Code)
+stdio:
+	uv run python -m glee
 
 # Database migrations
 m:
