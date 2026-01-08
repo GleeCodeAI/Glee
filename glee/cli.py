@@ -1,10 +1,15 @@
 """Glee CLI - The Conductor for Your AI Orchestra."""
 
+import os
+from pathlib import Path
 from typing import Any
 
 import typer
+from loguru import logger
 from rich.console import Console
 from rich.table import Table
+
+from glee.logging import setup_logging
 
 app = typer.Typer(
     name="glee",
@@ -12,6 +17,17 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+
+@app.callback()
+def main_callback() -> None:
+    """Initialize logging for all commands."""
+    project_path = Path(os.getcwd())
+    glee_dir = project_path / ".glee"
+    if glee_dir.exists():
+        setup_logging(project_path)
+    else:
+        setup_logging(None)  # Console only
 
 
 @app.command()
@@ -166,6 +182,7 @@ def connect(
         priority=priority,
     )
 
+    logger.info(f"Connected agent {agent_config['name']} ({command}) as {role}")
     console.print(f"[green]Connected {agent_config['name']} ({command}) as {role}[/green]")
     if domain_list:
         console.print(f"  Domain: {', '.join(domain_list)}")
@@ -302,6 +319,8 @@ def review(
             return name, None, str(e)
 
     # Run reviews in parallel
+    reviewer_names = [r.get('name', 'unknown') for r in reviewers]
+    logger.info(f"Starting review with reviewers: {', '.join(reviewer_names)}")
     console.print("[green]Running reviews...[/green]")
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewers)) as executor:
         futures = {executor.submit(run_single_review, r): r for r in reviewers}
@@ -336,8 +355,10 @@ def review(
     console.print()
     console.print("=" * 60)
     if all_approved:
+        logger.info("Review completed: all reviewers approved")
         console.print("[bold green]✓ All reviewers approved[/bold green]")
     else:
+        logger.warning("Review completed: changes requested")
         console.print("[bold yellow]⚠ Changes requested[/bold yellow]")
 
 
@@ -483,6 +504,68 @@ def memory_show(
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+# Logs subcommands
+logs_app = typer.Typer(help="Log management commands")
+app.add_typer(logs_app, name="logs")
+
+
+@logs_app.command("show")
+def logs_show(
+    level: str | None = typer.Option(None, "--level", "-l", help="Filter by level (DEBUG, INFO, WARNING, ERROR)"),
+    search: str | None = typer.Option(None, "--search", "-s", help="Search in message text"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+):
+    """Show recent logs."""
+    import os
+    from pathlib import Path
+
+    from glee.logging import query_logs
+
+    project_path = Path(os.getcwd())
+    results = query_logs(project_path, level=level, search=search, limit=limit)
+
+    if not results:
+        console.print("[yellow]No logs found[/yellow]")
+        return
+
+    console.print(f"[bold]Recent logs ({len(results)} entries):[/bold]\n")
+    for log in results:
+        level_color = {
+            "DEBUG": "dim",
+            "INFO": "blue",
+            "WARNING": "yellow",
+            "ERROR": "red",
+        }.get(log["level"], "white")
+
+        timestamp = log["timestamp"][:19]  # Trim microseconds
+        console.print(
+            f"[dim]{timestamp}[/dim] [{level_color}]{log['level']:8}[/{level_color}] {log['message']}"
+        )
+
+
+@logs_app.command("stats")
+def logs_stats():
+    """Show log statistics."""
+    import os
+    from pathlib import Path
+
+    from glee.logging import get_log_stats
+
+    project_path = Path(os.getcwd())
+    stats = get_log_stats(project_path)
+
+    if stats["total"] == 0:
+        console.print("[yellow]No logs found[/yellow]")
+        return
+
+    console.print("[bold]Log Statistics[/bold]")
+    console.print(f"  Total: {stats['total']}")
+    console.print()
+    console.print("[bold]By Level:[/bold]")
+    for level, count in sorted(stats["by_level"].items()):
+        console.print(f"  {level}: {count}")
 
 
 if __name__ == "__main__":
