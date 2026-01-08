@@ -16,7 +16,7 @@ uv run python -m glee --help
 
 ## Configure Claude Code
 
-Add to `~/.claude/settings.json`:
+Add to `.claude/settings.local.json` (per-project) or `~/.claude/settings.json` (global):
 
 ```json
 {
