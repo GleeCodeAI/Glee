@@ -63,14 +63,14 @@ class CodexAgent(BaseAgent):
                     pass
         return results
 
-    def run_review(self, files: list[str], focus: list[str] | None = None) -> AgentResult:
+    def run_review(self, target: str = ".", focus: list[str] | None = None) -> AgentResult:
         """Run a code review with Codex.
 
         Args:
-            files: List of file paths to review
+            target: What to review - file path, directory, 'git:changes', 'git:staged', or description
             focus: Optional focus areas (security, performance, etc.)
         """
-        prompt = review_prompt(files, focus)
+        prompt = review_prompt(target, focus)
         return self.run(prompt)
 
     def run_code(self, task: str, files: list[str] | None = None) -> AgentResult:

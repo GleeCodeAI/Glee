@@ -305,7 +305,7 @@ def init(
 
 @app.command()
 def review(
-    path: str | None = typer.Argument(None, help="File or directory to review"),
+    target: str | None = typer.Argument(None, help="What to review: file, directory, 'git:changes', 'git:staged', or description"),
     focus: str | None = typer.Option(None, "--focus", "-f", help="Focus areas (comma-separated: security, performance, etc.)"),
     reviewer: str | None = typer.Option(None, "--reviewer", "-r", help="Specific reviewer to use"),
 ) -> None:
@@ -323,20 +323,8 @@ def review(
         console.print("[red]Project not initialized. Run 'glee init' first.[/red]")
         raise typer.Exit(1)
 
-    # Resolve path to file list (default to current directory)
-    files: list[str] = []
-    p = Path(path) if path else Path.cwd()
-    if not p.exists():
-        console.print(f"[red]Path not found: {path}[/red]")
-        raise typer.Exit(1)
-    if p.is_file():
-        files = [str(p)]
-    elif p.is_dir():
-        # Get all files in directory (non-recursive)
-        files = [str(f) for f in p.iterdir() if f.is_file()]
-        if not files:
-            console.print(f"[yellow]No files found in {p}[/yellow]")
-            raise typer.Exit(1)
+    # Default target
+    review_target = target or "."
 
     # Get reviewers using dispatch module
     reviewers = select_reviewers()
@@ -357,8 +345,7 @@ def review(
 
     # Show review plan
     console.print("[bold]Review Plan[/bold]")
-    console.print(f"  Path: {p}")
-    console.print(f"  Files: {len(files)} file(s)")
+    console.print(f"  Target: {review_target}")
     console.print(f"  Reviewers: {', '.join(r.get('name', 'unknown') for r in reviewers)}")
     if focus_list:
         console.print(f"  Focus: {', '.join(focus_list)}")
@@ -385,7 +372,7 @@ def review(
             review_focus = list(set(review_focus + config_focus))
 
         try:
-            result = agent.run_review(files=files or [], focus=review_focus if review_focus else None)
+            result = agent.run_review(target=review_target, focus=review_focus if review_focus else None)
             return name, result, None
         except Exception as e:
             return name, None, str(e)
@@ -728,6 +715,16 @@ def logs_detail(
         console.print()
         console.print("[bold red]Error:[/bold red]")
         console.print(log["error"])
+
+
+@app.command()
+def mcp():
+    """Run Glee MCP server (for Claude Code integration)."""
+    import asyncio
+
+    from glee.mcp_server import run_server
+
+    asyncio.run(run_server())
 
 
 if __name__ == "__main__":

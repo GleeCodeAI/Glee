@@ -64,8 +64,14 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def run_review(self, files: list[str], focus: list[str] | None = None) -> AgentResult:
-        """Run a code review."""
+    def run_review(self, target: str = ".", focus: list[str] | None = None) -> AgentResult:
+        """Run a code review.
+
+        Args:
+            target: What to review. Can be a file path, directory, 'git:changes',
+                    'git:staged', or a natural description.
+            focus: Optional focus areas (security, performance, etc.)
+        """
         pass
 
     @abstractmethod

@@ -55,7 +55,8 @@ With Glee:
 ```
 
 **Protocol In, Subprocess Out**:
-- Agents connect via MCP or A2A protocols
+- Claude Code connects via MCP protocol (`glee mcp` server)
+- `glee init` registers MCP server in project's `.claude/settings.local.json`
 - Glee invokes CLI agents via subprocess
 - Every agent can talk to every other agent — through Glee
 
@@ -225,11 +226,11 @@ The first version focuses on multi-agent collaboration:
 
 **"Multiple coders. Multiple reviewers. One orchestrator."**
 
+- **MCP integration**: `glee init` registers Glee as MCP server, Claude Code gets `glee_*` tools
 - **Multiple coders**: Assign Claude to backend, Gemini to frontend, Codex to infra
 - **Multiple reviewers**: Security review + Architecture review + UX review in parallel
-- **Cross-review**: Backend code reviewed by frontend agent, and vice versa
+- **Flexible review targets**: Review files, directories, `git:changes`, or natural descriptions
 - Works with Claude Code, Codex, Gemini CLI out of the box
-- **Embedded storage**: LanceDB + DuckDB + fastembed (no server)
 - Installs in one command, zero config
 
 This establishes the core pattern: your agents + Glee = better code, faster.

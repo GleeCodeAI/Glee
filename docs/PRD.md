@@ -355,11 +355,13 @@ The memory layer provides persistent, searchable storage:
 
 # Project config
 <project>/
-└── .glee/                  # gitignore this directory
-    ├── config.yml          # project.id, agents, dispatch, etc.
-    ├── memory.lance/       # LanceDB - vector search
-    ├── memory.duckdb       # DuckDB - SQL queries
-    └── sessions/           # Session cache
+├── .glee/                  # gitignore this directory
+│   ├── config.yml          # project.id, agents, dispatch, etc.
+│   ├── memory.lance/       # LanceDB - vector search
+│   ├── memory.duckdb       # DuckDB - SQL queries
+│   └── sessions/           # Session cache
+└── .claude/
+    └── settings.local.json # MCP server registration (created by glee init)
 ```
 
 ### Project Registry
@@ -627,9 +629,9 @@ workflows:
 
 ```bash
 # Core commands
-glee start                    # Start Glee daemon
-glee stop                     # Stop Glee daemon
-glee status                   # Show running agents & status
+glee init                     # Initialize project + register MCP server
+glee status                   # Show global status + project status
+glee mcp                      # Run MCP server (used by Claude Code)
 
 # Agent management
 glee connect <agent> --role coder --domain <areas>
@@ -639,20 +641,12 @@ glee connect <agent> --role reviewer --focus <areas>
 glee disconnect <agent>       # Disconnect an agent
 glee agents                   # List connected agents by role
 
-# Multi-coder workflow
-glee code <task>              # Dispatch task to coders
-glee code --backend <task>    # Send to backend coders only
-glee code --frontend <task>   # Send to frontend coders only
-glee code --all <task>        # Send to all coders in parallel
-
-# Multi-reviewer workflow
-glee review [files]           # Trigger multi-reviewer workflow
-glee review --security        # Security-focused review only
-glee review --all             # All reviewers in parallel
-
-# Custom workflow
-glee workflow run <name>      # Run a custom workflow
-glee workflow list            # List available workflows
+# Multi-reviewer workflow (flexible targets)
+glee review [target]          # Review files, dirs, or git changes
+glee review src/api/          # Review a directory
+glee review git:changes       # Review uncommitted changes
+glee review git:staged        # Review staged changes
+glee review "auth module"     # Natural description
 
 # Memory
 glee memory show              # Show project memory
@@ -661,7 +655,6 @@ glee memory search <query>    # Search memory
 glee context                  # Get project context (for hook injection)
 
 # Config
-glee init                     # Initialize .glee/config.yml with new project ID
 glee init --new-id            # Generate new ID (if duplicate detected)
 glee config                   # Show current config
 
@@ -670,6 +663,42 @@ glee project list             # List all registered projects
 glee project info             # Show current project info
 glee project prune            # Remove stale entries (path not found)
 glee update                   # Update project path (after moving project)
+```
+
+## MCP Integration
+
+Glee exposes tools to Claude Code via Model Context Protocol (MCP).
+
+### How It Works
+
+```
+glee init
+    ├── Creates .glee/config.yml (project config)
+    └── Creates .claude/settings.local.json (MCP registration)
+
+claude (start in project)
+    └── Reads .claude/settings.local.json
+        └── Spawns `glee mcp` as MCP server
+            └── Claude now has glee_* tools
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `glee_status` | Show project status and connected agents |
+| `glee_review` | Run multi-agent review on any target |
+| `glee_connect` | Connect an agent to the project |
+| `glee_disconnect` | Disconnect an agent |
+
+### Usage in Claude Code
+
+After `glee init`, restart Claude Code. Then:
+
+```
+"Use glee_review to review git:changes"
+"Connect codex as a security reviewer"
+"Show me the glee status"
 ```
 
 ---
@@ -729,12 +758,14 @@ glee/
 │   ├── cli.py                # Typer CLI commands
 │   ├── config.py             # Configuration management
 │   ├── logging.py            # Logging setup
+│   ├── mcp_server.py         # MCP server for Claude Code integration
 │   ├── agents/
 │   │   ├── __init__.py       # Agent registry
 │   │   ├── base.py           # Agent interface
 │   │   ├── claude.py         # Claude Code adapter
 │   │   ├── codex.py          # Codex adapter
-│   │   └── gemini.py         # Gemini adapter
+│   │   ├── gemini.py         # Gemini adapter
+│   │   └── prompts.py        # Reusable prompt templates
 │   └── memory/               # TODO: Memory layer
 │       ├── store.py          # Memory abstraction
 │       ├── lance.py          # LanceDB backend (vector)
@@ -754,14 +785,15 @@ glee/
 **Goal**: A working multi-agent platform that supports multiple coders and reviewers.
 
 ### Must Have
-- [ ] `glee start` / `glee stop` daemon
-- [ ] `glee connect <agent> --role <role>` for Claude, Codex, Gemini
-- [ ] **Multiple coders** with domain focus (backend, frontend, infra)
-- [ ] **Multiple reviewers** with specialty (security, architecture, ux)
-- [ ] Parallel agent execution
-- [ ] `glee review` triggers multi-reviewer workflow
-- [ ] Cross-review between coders
-- [ ] `.glee/config.yml` project config
+- [x] `glee init` - Initialize project with MCP registration
+- [x] `glee connect <agent> --role <role>` for Claude, Codex, Gemini
+- [x] **Multiple coders** with domain focus (backend, frontend, infra)
+- [x] **Multiple reviewers** with specialty (security, architecture, ux)
+- [x] Parallel agent execution
+- [x] `glee review` triggers multi-reviewer workflow with flexible targets
+- [x] `glee status` shows global + project status
+- [x] `.glee/config.yml` project config
+- [x] **MCP integration** - `glee mcp` server exposes tools to Claude Code
 - [ ] LanceDB + DuckDB + fastembed (embedded, no server)
 - [ ] **Auto memory injection via hook** - `glee context` command for session_start hook
 

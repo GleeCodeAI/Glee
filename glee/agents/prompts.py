@@ -1,20 +1,27 @@
 """Reusable prompt templates for Glee agents."""
 
 
-def review_prompt(files: list[str], focus: list[str] | None = None) -> str:
+def review_prompt(target: str = ".", focus: list[str] | None = None) -> str:
     """Generate a code review prompt.
 
     Args:
-        files: List of file paths to review
+        target: What to review. Can be a file path, directory, 'git:changes',
+                'git:staged', or a natural description.
         focus: Optional focus areas (security, performance, etc.)
     """
     focus_str = ""
     if focus:
         focus_str = f"Focus on: {', '.join(focus)}. "
 
-    files_str = ", ".join(files) if files else "the current codebase"
+    # Interpret special targets
+    if target == "git:changes":
+        target_str = "the uncommitted changes in this git repository (use `git diff` to see them)"
+    elif target == "git:staged":
+        target_str = "the staged changes in this git repository (use `git diff --staged` to see them)"
+    else:
+        target_str = target
 
-    return f"""Review the following code: {files_str}
+    return f"""Review: {target_str}
 
 {focus_str}Provide structured feedback using severity tags:
 
