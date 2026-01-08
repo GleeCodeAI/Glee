@@ -344,13 +344,28 @@ def review(
 @app.command()
 def context():
     """Get project context (for hook injection)."""
+    import os
+
     from glee.config import get_project_context
+    from glee.memory import Memory
 
     ctx = get_project_context()
-    if ctx:
-        console.print(ctx)
-    else:
+    if not ctx:
         console.print("[yellow]No project context found. Run 'glee init' first.[/yellow]")
+        return
+
+    # Print agent context
+    console.print(ctx)
+
+    # Add memory context if available
+    try:
+        memory = Memory(os.getcwd())
+        memory_ctx = memory.get_context()
+        if memory_ctx:
+            console.print(memory_ctx)
+        memory.close()
+    except Exception:
+        pass  # Memory not initialized yet
 
 
 @app.command()
@@ -381,6 +396,93 @@ def test_agent(
 
     if result.error:
         console.print(f"[red]Error: {result.error}[/red]")
+
+
+# Memory subcommands
+memory_app = typer.Typer(help="Memory management commands")
+app.add_typer(memory_app, name="memory")
+
+
+@memory_app.command("add")
+def memory_add(
+    category: str = typer.Argument(..., help="Category: architecture, convention, review, decision"),
+    content: str = typer.Argument(..., help="Content to remember"),
+):
+    """Add a memory entry."""
+    import os
+
+    from glee.memory import Memory
+
+    valid_categories = ["architecture", "convention", "review", "decision"]
+    if category not in valid_categories:
+        console.print(f"[red]Invalid category: {category}[/red]")
+        console.print(f"Valid categories: {', '.join(valid_categories)}")
+        raise typer.Exit(1)
+
+    try:
+        memory = Memory(os.getcwd())
+        memory_id = memory.add(category=category, content=content)
+        memory.close()
+        console.print(f"[green]Added memory {memory_id} to {category}[/green]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("search")
+def memory_search(
+    query: str = typer.Argument(..., help="Search query"),
+    category: str | None = typer.Option(None, "--category", "-c", help="Filter by category"),
+    limit: int = typer.Option(5, "--limit", "-l", help="Max results"),
+):
+    """Search memories by semantic similarity."""
+    import os
+
+    from glee.memory import Memory
+
+    try:
+        memory = Memory(os.getcwd())
+        results = memory.search(query=query, category=category, limit=limit)
+        memory.close()
+
+        if not results:
+            console.print("[yellow]No memories found[/yellow]")
+            return
+
+        console.print(f"[bold]Found {len(results)} memories:[/bold]")
+        for r in results:
+            console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('category')})")
+            console.print(f"  {r.get('content')}")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@memory_app.command("show")
+def memory_show(
+    category: str = typer.Argument(..., help="Category to show"),
+):
+    """Show all memories in a category."""
+    import os
+
+    from glee.memory import Memory
+
+    try:
+        memory = Memory(os.getcwd())
+        results = memory.get_by_category(category)
+        memory.close()
+
+        if not results:
+            console.print(f"[yellow]No memories in category '{category}'[/yellow]")
+            return
+
+        console.print(f"[bold]{category.title()} ({len(results)} entries):[/bold]")
+        for r in results:
+            console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
+            console.print(f"  {r.get('content')}")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
