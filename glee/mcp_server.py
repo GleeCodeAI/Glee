@@ -88,8 +88,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Category: 'architecture' (design decisions), 'convention' (code style), 'review' (feedback), or 'decision' (choices made)",
-                        "enum": ["architecture", "convention", "review", "decision"],
+                        "description": "Category for the memory. Common: 'architecture', 'convention', 'review', 'decision'. Custom categories allowed (e.g., 'api', 'security', 'dependencies').",
                     },
                     "content": {
                         "type": "string",
@@ -111,8 +110,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "category": {
                         "type": "string",
-                        "description": "Optional category filter",
-                        "enum": ["architecture", "convention", "review", "decision"],
+                        "description": "Optional category filter (any category name)",
                     },
                     "limit": {
                         "type": "integer",
@@ -140,8 +138,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Category to show",
-                        "enum": ["architecture", "convention", "review", "decision"],
+                        "description": "Category to show (any category name)",
                     },
                 },
                 "required": ["category"],
@@ -170,7 +167,6 @@ async def list_tools() -> list[Tool]:
                     "category": {
                         "type": "string",
                         "description": "Optional category to clear. If not specified, clears ALL memories.",
-                        "enum": ["architecture", "convention", "review", "decision"],
                     },
                 },
                 "required": [],
@@ -428,10 +424,6 @@ async def _handle_memory_add(arguments: dict[str, Any]) -> list[TextContent]:
 
     if not category or not content:
         return [TextContent(type="text", text="Both 'category' and 'content' are required.")]
-
-    valid_categories = ["architecture", "convention", "review", "decision"]
-    if category not in valid_categories:
-        return [TextContent(type="text", text=f"Invalid category: {category}. Valid: {', '.join(valid_categories)}")]
 
     try:
         project_path = config.get("project", {}).get("path", ".")

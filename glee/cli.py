@@ -560,19 +560,13 @@ app.add_typer(memory_app, name="memory")
 
 @memory_app.command("add")
 def memory_add(
-    category: str = typer.Argument(..., help="Category: architecture, convention, review, decision"),
+    category: str = typer.Argument(..., help="Category (e.g., architecture, convention, review, decision, or custom)"),
     content: str = typer.Argument(..., help="Content to remember"),
 ):
     """Add a memory entry."""
     import os
 
     from glee.memory import Memory
-
-    valid_categories = ["architecture", "convention", "review", "decision"]
-    if category not in valid_categories:
-        console.print(f"[red]Invalid category: {category}[/red]")
-        console.print(f"Valid categories: {', '.join(valid_categories)}")
-        raise typer.Exit(1)
 
     try:
         memory = Memory(os.getcwd())
