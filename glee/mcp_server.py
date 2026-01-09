@@ -391,8 +391,8 @@ async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
 
     lines: list[str] = [f"Reviewed with {len(reviewers)} reviewer(s)", f"Target: {target}", ""]
 
-    # Get event loop for thread-safe async calls
-    loop = asyncio.get_event_loop()
+    # Get running event loop for thread-safe async calls
+    loop = asyncio.get_running_loop()
 
     def send_log_sync(message: str, level: str = "info") -> None:
         """Send log message from sync context (thread)."""
@@ -450,12 +450,12 @@ async def _handle_review(arguments: dict[str, Any]) -> list[TextContent]:
             import traceback
             return name, None, f"{str(e)}\n{traceback.format_exc()}"
 
-    # Run reviews in parallel for speed - streaming output may interleave
+    # Run reviews in parallel without blocking the event loop so log streaming works.
     results: dict[str, tuple[str | None, str | None]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(reviewers)) as executor:
-        futures = {executor.submit(run_single_review, r): r for r in reviewers}
-        for future in concurrent.futures.as_completed(futures):
-            agent_name, output, error = future.result()
+        tasks = [loop.run_in_executor(executor, run_single_review, r) for r in reviewers]
+        for task in asyncio.as_completed(tasks):
+            agent_name, output, error = await task
             results[agent_name] = (output, error)
 
     # Print completion footer to stderr, stream log, and MCP notification
