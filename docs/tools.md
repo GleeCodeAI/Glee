@@ -299,11 +299,30 @@ glee_tools_list()
 # ]
 ```
 
-## Implementation
+## Implementation Phases
 
-### Phase 3: Tools (v0.5)
+### Phase 1: glee_task (v0.3)
+- [x] Design docs (subagents.md, workflows.md, tools.md)
+- [ ] `glee_task` MCP tool - spawn CLI agents (codex, claude, gemini)
+- [ ] Session management (generate ID, store context)
+- [ ] Context injection (AGENTS.md + memories)
+- [ ] Basic logging to `.glee/stream_logs/`
+
+### Phase 2: Tools (v0.4)
 - [ ] `.glee/tools/*.yml` format
 - [ ] `glee_tool` MCP tool (execute tools)
 - [ ] `glee_tool_create` MCP tool (AI creates tools)
 - [ ] `glee_tools_list` MCP tool
 - [ ] Built-in tools: web_search, http_request
+
+### Phase 3: Agents (v0.5)
+- [ ] `.glee/agents/*.yml` format
+- [ ] `glee_agent_create` MCP tool (AI creates agents)
+- [ ] `glee agents import` from Claude/Gemini formats
+- [ ] Agent selection heuristics
+
+### Phase 4: Workflows (v0.6+)
+- [ ] `.glee/workflows/*.yml` format
+- [ ] `glee_workflow` MCP tool
+- [ ] Nested workflows
+- [ ] Parallel/DAG execution

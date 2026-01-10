@@ -200,7 +200,6 @@ For now, subagents are for **small, scoped, parallelizable tasks**.
 glee_task(
     description="Find API endpoints",           # Short (3-5 words)
     prompt="Search for all REST endpoints...",  # Full task prompt
-    agent_name="explore",                       # Subagent name or CLI (optional)
     background=False,                           # Run in background (optional)
     session_id=None                             # Resume existing session (optional)
 )
@@ -212,7 +211,6 @@ glee_task(
 |-----------|------|----------|-------------|
 | `description` | string | Yes | Short task description (3-5 words) |
 | `prompt` | string | Yes | Full task prompt for the agent |
-| `agent_name` | string | No | Subagent from `.glee/agents/*.yml` OR CLI name (codex/claude/gemini) |
 | `background` | boolean | No | Run in background, default: false |
 | `session_id` | string | No | Resume existing session by ID |
 
@@ -503,20 +501,27 @@ MCP can't stream stdout/stderr to clients. Same solution as reviewers:
 
 ## Implementation Phases
 
-### Phase 1: Basic (v0.3)
-- [x] Design doc (this file)
-- [ ] `glee_task` MCP tool
+### Phase 1: glee_task (v0.3)
+- [x] Design docs (subagents.md, workflows.md, tools.md)
+- [ ] `glee_task` MCP tool - spawn CLI agents (codex, claude, gemini)
 - [ ] Session management (generate ID, store context)
-- [ ] Sequential execution (simpler first)
+- [ ] Context injection (AGENTS.md + memories)
 - [ ] Basic logging to `.glee/stream_logs/`
 
-### Phase 2: Sessions & Background (v0.4)
-- [ ] `session_id` resume support
-- [ ] `background=true` async execution
-- [ ] Resource limits (max concurrent, timeout)
+### Phase 2: Tools (v0.4)
+- [ ] `.glee/tools/*.yml` format
+- [ ] `glee_tool` MCP tool (execute tools)
+- [ ] `glee_tool_create` MCP tool (AI creates tools)
+- [ ] Built-in tools: web_search, http_request
 
-### Phase 3: Smart (v0.5+)
+### Phase 3: Agents (v0.5)
+- [ ] `.glee/agents/*.yml` format
+- [ ] `glee_agent_create` MCP tool (AI creates agents)
+- [ ] `glee agents import` from Claude/Gemini formats
 - [ ] Agent selection heuristics
-- [ ] Named subagents from `.glee/agents/*.yml`
-- [ ] Import from Claude/Gemini formats
-- [ ] Memory integration
+
+### Phase 4: Workflows (v0.6+)
+- [ ] `.glee/workflows/*.yml` format
+- [ ] `glee_workflow` MCP tool
+- [ ] Nested workflows
+- [ ] Parallel/DAG execution
