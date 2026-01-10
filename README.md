@@ -1,8 +1,8 @@
 # Glee
 
-> The Conductor for Your AI Orchestra
+> The Stage Manager for Your AI Orchestra
 
-An orchestration layer for AI coding agents with shared memory, context injection, and multi-agent collaboration.
+An orchestration layer for AI coding agents with shared memory, code review, and subagent orchestration.
 
 ## Quick Start
 
@@ -11,15 +11,12 @@ An orchestration layer for AI coding agents with shared memory, context injectio
 uv tool install glee --python 3.13
 # or: pipx install glee
 
-# Upgrade
-uv tool upgrade glee --python 3.13
-
 # Initialize project (registers MCP server for Claude Code)
 glee init
 
-# Connect agents
-glee connect claude --role coder --domain backend,api
-glee connect codex --role reviewer --focus security,performance
+# Configure reviewers
+glee config set reviewer.primary codex
+glee config set reviewer.secondary gemini
 
 # View status
 glee status
@@ -33,47 +30,48 @@ glee review git:staged           # Review staged changes
 ## Features
 
 - **MCP Integration**: `glee init` registers Glee as an MCP server - Claude Code gets `glee_*` tools automatically
-- **Multiple Coders**: Different agents for different domains (backend, frontend, infra)
-- **Multiple Reviewers**: Get diverse perspectives (security, performance, architecture)
-- **Parallel Execution**: Reviews run concurrently for speed
-- **Flexible Review Targets**: Review files, directories, git changes, or natural descriptions
+- **Structured Reviews**: Severity levels (MUST/SHOULD, HIGH/MEDIUM/LOW) for prioritized feedback
+- **Reviewer Preferences**: Primary + optional secondary reviewer
+- **Persistent Memory**: Project context persists across sessions
+- **Stream Logging**: All agent output logged to `.glee/stream_logs/`
 
 ## Claude Code Integration
 
 After running `glee init`, restart Claude Code. You'll have these MCP tools:
 
-- `glee_status` - Show project status and connected agents
-- `glee_review` - Run multi-agent review on any target
-- `glee_connect` - Connect an agent to the project
-- `glee_disconnect` - Disconnect an agent
+- `glee_status` - Show project status and reviewer config
+- `glee_review` - Run code review with primary reviewer
+- `glee_config_set` - Set config value (e.g., reviewer.primary)
+- `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
+- `glee_memory_*` - Memory management tools
 
 ```
 # In Claude Code, you can now say:
 "Use glee_review to review the uncommitted changes"
-"Connect codex as a security reviewer using glee"
+"Set codex as my primary reviewer using glee"
 ```
 
 ## CLI Commands
 
 ```bash
 glee init                         # Initialize project + register MCP server
-glee status                       # Show global and project status
-glee connect <cmd> --role <role>  # Connect an agent
-glee disconnect <name>            # Disconnect an agent
-glee agents                       # List available agents
-glee review [target]              # Run multi-reviewer workflow
-glee test-agent <cmd>             # Test an agent
-glee mcp                          # Run MCP server (used by Claude Code)
-```
+glee status                       # Show project status
 
-## Review Targets
+# Configuration
+glee config get                   # Show all config
+glee config set reviewer.primary codex
+glee config set reviewer.secondary gemini
+glee config unset reviewer.secondary
 
-```bash
+# Review
 glee review src/api/              # Review a directory
 glee review src/main.py           # Review a file
 glee review git:changes           # Review uncommitted changes
 glee review git:staged            # Review staged changes
-glee review "the auth module"     # Natural description
+
+# Agents
+glee test-agent codex             # Test an agent
+glee mcp                          # Run MCP server (used by Claude Code)
 ```
 
 ## Configuration
@@ -83,23 +81,10 @@ glee review "the auth module"     # Natural description
 project:
   id: 550e8400-e29b-41d4-a716-446655440000
   name: my-app
-  path: /Users/yumin/ventures/my-app
 
-agents:
-  - name: claude-a1b2c3
-    command: claude
-    role: coder
-    domain: [backend, api]
-    priority: 1
-
-  - name: codex-d4e5f6
-    command: codex
-    role: reviewer
-    focus: [security, performance]
-
-dispatch:
-  coder: first      # first | random | round-robin
-  reviewer: all     # all | first | random
+reviewers:
+  primary: codex    # Default reviewer (required)
+  secondary: gemini # For second opinions (optional)
 ```
 
 ## How It Works
@@ -117,4 +102,22 @@ claude (start in project)
 
 ## Documentation
 
-See [docs/PRD.md](https://github.com/GleeCodeAI/Glee/blob/main/docs/PRD.md) for full documentation.
+- [docs/VISION.md](docs/VISION.md) - Project vision and design principles
+- [docs/PRD.md](docs/PRD.md) - Full product requirements
+- [docs/subagents.md](docs/subagents.md) - Subagent orchestration design
+- [docs/workflows.md](docs/workflows.md) - Agents & workflows design
+- [docs/arbitration.md](docs/arbitration.md) - Review feedback system
+
+## Development
+
+```bash
+# Clone the repository
+git clone https://github.com/GleeCodeAI/Glee
+cd Glee
+
+# Install dev dependencies
+uv sync
+
+# Run CLI during development
+uv run glee --help
+```

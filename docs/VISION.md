@@ -66,9 +66,29 @@ With Glee:
 - Glee invokes CLI agents via subprocess
 - Output logged to `.glee/stream_logs/` for observability
 
-## Three Pillars
+## Four Pillars
 
-### 1. Intelligent Review Protocol
+### 1. AI-Native Orchestration
+
+**Agents can define other agents.** This is the path to full autonomy.
+
+```
+Human defines initial agent
+    ↓
+Agent spawns specialized agents for subtasks
+    ↓
+Those agents spawn more agents as needed
+    ↓
+Fully autonomous operation
+```
+
+Two simple concepts:
+- **Agents**: Reusable workers (`.glee/agents/*.yml`)
+- **Workflows**: Orchestration of agents (`.glee/workflows/*.yml`)
+
+Both can be created by humans OR AI. This is what makes Glee AI-native.
+
+### 2. Intelligent Review Protocol
 
 Agents make mistakes. Code gets shipped with bugs, security holes, and anti-patterns.
 
@@ -81,7 +101,7 @@ Glee provides structured, professional code review:
 
 **Not "does this code look okay?" — but systematic quality assurance.**
 
-### 2. Agent Abstraction Layer
+### 3. Agent Abstraction Layer
 
 Today you use Claude Code. Tomorrow maybe Codex is better for your use case. Next month, a new player emerges.
 
@@ -93,7 +113,7 @@ Glee abstracts the underlying agent:
 
 **Use any agent as your main coder. Configure any agent as your reviewer.**
 
-### 3. Persistent Memory
+### 4. Persistent Memory
 
 This is the biggest gap in today's coding agents.
 
@@ -143,9 +163,9 @@ More Memory → Smarter Context → Better Code ←──┘
 ```
 
 This is the moat:
+- **AI-native**: Agents define agents, enabling full autonomy
 - **Review quality**: Structured feedback catches issues single agents miss
 - **Memory compounds**: Every review, every decision makes Glee smarter
-- **User control**: HITL ensures human oversight at every step
 
 ## Design Principles
 
@@ -165,9 +185,9 @@ Your code stays on your machine. Agents run locally with full capabilities. Memo
 
 `glee init` and you're running. Complexity is opt-in, not required.
 
-### 5. Human In The Loop
+### 5. Autonomy with Oversight
 
-User always decides what feedback to apply. No autonomous code changes without explicit approval.
+AI agents can operate autonomously — defining agents, spawning workflows, making decisions. But humans set the boundaries and can intervene at any point.
 
 ## Current State
 
@@ -189,14 +209,17 @@ glee review src/                       # Run code review
 
 ## The Future
 
-### V2: Advanced Memory
+### V2: AI-Native Orchestration
+- `glee_task` MCP tool for spawning subagents
+- Agents define other agents (fully autonomous)
+- Workflows: Orchestration of agents (human or AI defined)
+- Import from Claude Code and Gemini CLI formats
+- Session management for stateful conversations
+
+### V3: Advanced Memory
 - Automatic context injection based on task
 - Learn from every review and decision
 - Cross-project knowledge sharing
-
-### V3: Intelligent Dispatch
-- Auto-detect task type for review focus
-- Smart task decomposition for subagents
 
 ### V4: Team & Enterprise
 - Shared memory across team

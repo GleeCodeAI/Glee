@@ -100,6 +100,7 @@ When `glee init` is run, it registers Glee as an MCP server in `.mcp.json`. Clau
 - `glee_config_set` - Set config value (e.g., reviewer.primary)
 - `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
 - `glee_memory_*` - Memory management tools
+- `glee_task` - Spawn subagent for a task (V2)
 
 ## Config Structure
 
@@ -122,6 +123,17 @@ project/
 │   ├── config.yml      # Glee project config
 │   ├── memory.lance/   # Vector store
 │   ├── memory.duckdb   # SQL store
-│   └── stream_logs/    # Agent stdout/stderr logs
+│   ├── stream_logs/    # Agent stdout/stderr logs
+│   ├── agents/         # Subagent definitions (V2)
+│   ├── workflows/      # Workflow definitions (V2)
+│   └── sessions/       # Session cache (V2)
 └── .mcp.json           # MCP server registration (for Claude Code)
 ```
+
+## Subagent Orchestration (V2)
+
+Glee separates two concepts:
+- **Agents**: Reusable workers (`.glee/agents/*.yml`)
+- **Workflows**: Orchestration of agents (`.glee/workflows/*.yml`)
+
+See `docs/subagents.md` and `docs/workflows.md` for details.

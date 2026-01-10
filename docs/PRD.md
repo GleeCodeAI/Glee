@@ -232,6 +232,34 @@ All agent output logged to `.glee/stream_logs/`:
 tail -f .glee/stream_logs/stdout-*.log
 ```
 
+### 5. Subagent Orchestration (V2)
+
+Glee becomes the universal subagent orchestrator:
+
+**Two concepts:**
+- **Agents**: Reusable workers defined in `.glee/agents/*.yml`
+- **Workflows**: Orchestration of agents (human or AI defined)
+
+```yaml
+# .glee/agents/security-scanner.yml
+name: security-scanner
+description: Scan code for security vulnerabilities
+agent: codex
+prompt: |
+  You are a security expert. Analyze the given code for:
+  - SQL injection
+  - XSS vulnerabilities
+  - Authentication issues
+```
+
+**Import from other formats:**
+```bash
+glee agents import --from claude  # .claude/agents/*.md → .glee/agents/*.yml
+glee agents import --from gemini  # .gemini/agents/*.toml → .glee/agents/*.yml
+```
+
+See [docs/workflows.md](workflows.md) and [docs/subagents.md](subagents.md) for details.
+
 ---
 
 ## CLI Commands
@@ -319,6 +347,8 @@ glee/
 │   ├── PRD.md
 │   ├── agentic.md
 │   ├── arbitration.md
+│   ├── subagents.md
+│   ├── workflows.md
 │   └── stream_log.md
 ├── tests/
 └── pyproject.toml
@@ -345,7 +375,14 @@ glee/
 - [ ] Auto memory injection via hook
 - [ ] Side-by-side feedback comparison
 
-### Out of Scope (V2+)
+### V2: Subagent Orchestration
+- [ ] `glee_task` MCP tool
+- [ ] `.glee/agents/*.yml` format
+- [ ] `glee agents import` from Claude/Gemini
+- [ ] Session management for stateful conversations
+- [ ] `.glee/workflows/*.yml` format (V2.1)
+
+### Out of Scope (V3+)
 - Advanced RAG (cross-project knowledge base)
 - Team features (multi-user collaboration)
 - GitHub integration
