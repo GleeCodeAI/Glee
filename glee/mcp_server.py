@@ -938,17 +938,44 @@ async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
     # 1. agent_name provided → use subagent definition from .glee/agents/
     # 2. agent_cli provided → run CLI directly
     # 3. Neither provided → auto-select based on heuristics
+    from glee.subagent import SubagentLoadError, load_subagent, render_prompt
+
     agent_cli: str  # CLI to use
+    subagent_name: str | None = None  # For session tracking
+    subagent_prompt: str | None = None  # Subagent system prompt
 
     if agent_name_arg:
-        # TODO (Phase 3): Load subagent from .glee/agents/{agent_name}.yml
-        agent_path = project_path / ".glee" / "agents" / f"{agent_name_arg}.yml"
-        if agent_path.exists():
-            # Phase 3: Would load and use subagent definition here
-            # For now, return not implemented
-            return [TextContent(type="text", text=f"Subagent loading not yet implemented (Phase 3). Use agent_cli='codex'|'claude'|'gemini' instead.")]
+        # Load subagent from .glee/agents/{agent_name}.yml
+        try:
+            subagent = load_subagent(project_path, agent_name_arg)
+        except SubagentLoadError as e:
+            return [TextContent(type="text", text=str(e))]
+
+        subagent_name = agent_name_arg
+
+        # Use subagent's preferred CLI, or auto-select if not specified
+        if subagent.get("agent"):
+            agent_cli = subagent["agent"]  # type: ignore[assignment]
         else:
-            return [TextContent(type="text", text=f"Subagent not found: {agent_name_arg}. Create .glee/agents/{agent_name_arg}.yml or use agent_cli instead.")]
+            agent_cli = _select_agent(prompt)
+
+        agent = registry.get(agent_cli)
+        if not agent:
+            return [TextContent(type="text", text=f"Unknown agent CLI: {agent_cli}. Available: codex, claude, gemini")]
+        if not agent.is_available():
+            # Try fallback if subagent's preferred CLI is not available
+            for fallback in ["codex", "claude", "gemini"]:
+                fallback_agent = registry.get(fallback)
+                if fallback_agent and fallback_agent.is_available():
+                    agent = fallback_agent
+                    agent_cli = fallback
+                    break
+            else:
+                return [TextContent(type="text", text=f"Agent CLI '{agent_cli}' is not installed.")]
+
+        # Render prompt with subagent instructions
+        subagent_prompt = render_prompt(subagent, prompt)
+
     elif agent_cli_arg:
         # Use specified CLI directly
         agent_cli = agent_cli_arg
@@ -978,14 +1005,18 @@ async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:
 
     # Create session if not resuming
     if not session:
-        session = session_mod.create_session(project_path, description, agent_cli, prompt)
+        session = session_mod.create_session(
+            project_path, description, agent_cli, prompt, agent_name=subagent_name
+        )
 
     # session is guaranteed to be non-None here (either loaded or created)
     assert session is not None
     current_session_id: str = session["session_id"]
 
     # Build full prompt with context
-    full_prompt = _build_task_prompt(project_path, session, prompt)
+    # If using a subagent, use the rendered subagent prompt; otherwise use regular prompt
+    effective_prompt = subagent_prompt if subagent_prompt else prompt
+    full_prompt = _build_task_prompt(project_path, session, effective_prompt)
 
     # Run agent
     start_time = time.time()
