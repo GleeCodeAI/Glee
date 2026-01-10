@@ -1,62 +1,14 @@
 # Glee TODO
 
-## Design Principle: Configurable Autonomy
+## Autonomy
 
-Different users, different needs. Not everyone can or wants to make every decision.
+Autonomy levels, checkpoint policy, guardrails, and observability live in `docs/Autonomy.md`.
 
-```
-Human         = Conductor (directs, decides) — or delegates
-Main Agent    = Principal musician (does the work)
-Subagents     = Session musicians (called in as needed)
-Glee          = Stage manager (logistics, coordination, memory)
-```
-
-### Autonomy Levels
-
-| Level        | Who Decides                                 | Best For                    |
-| ------------ | ------------------------------------------- | --------------------------- |
-| `full_hitl`  | Human approves every step                   | Control freaks, learning    |
-| `guided`     | AI suggests, human approves major decisions | Most engineers (default)    |
-| `autonomous` | AI drives, human reviews at end             | Vibe coders, busy engineers |
-
-```yaml
-# .glee/config.yml
-autonomy:
-  level: guided # full_hitl | guided | autonomous
-
-  # Fine-grained controls (optional)
-  auto_apply_review: false # Auto-apply reviewer suggestions
-  auto_spawn_subagents: true # Let main agent spawn helpers without asking
-  require_approval_for:
-    - commit
-    - deploy
-    - delete
-```
-
-### Guardrails (all levels)
-
-- Always show what AI is doing (transparency)
-- Never auto-commit/deploy without explicit config
-- Log all decisions for audit
-
-### Observability
-
-MCP servers can't pass stderr to clients - logs disappear into void.
-
-**Solution: Stream logging to files**
-
-- [x] Log agent stdout/stderr to `.glee/stream_logs/`
-- [x] Daily rotation: `stdout-YYYYMMDD.log`, `stderr-YYYYMMDD.log`
-- [ ] Add OpenTelemetry integration
-- [ ] Web dashboard or TUI viewer for real-time monitoring
-
-### Development Philosophy
+## Development Philosophy
 
 - **No backward compatibility concerns** - nobody uses this yet
 - Break things freely, redesign from scratch if needed
 - Ship fast, iterate faster
-
----
 
 ## 1. Subagent Parallel Execution
 

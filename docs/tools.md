@@ -6,13 +6,15 @@ Unlike Claude Code skills, Glee tools are reusable across agents and workflows. 
 
 Tools are directories, not single files. This keeps manifests clean and allows supporting materials (scripts, assets, templates) to live alongside the tool.
 
+**Naming:** Directory name must match `name` in `tool.yml` and must be a valid directory name (no enforced casing).
+
 **Key sections:**
 - `name`, `description`, `kind`, `version` - Identity and tool type
 - `inputs.schema` - JSON Schema for all inputs
 - `outputs` - Output format and optional JSON Schema
 - `exec` - Execution details for exactly one of: `http`, `command`, `python`
 - `permissions` - Network, filesystem, and secrets access (secrets map uses typed entries; values are read from env vars with the same key)
-- `approval` - Whether user approval is required and why
+- `approval` - Whether user approval is required (`reason` only needed when `required: true`)
 - `examples` - Concrete usage examples help agents understand how to use the tool
 
 Inputs schema (JSON Schema 2020-12):
@@ -50,7 +52,7 @@ outputs:
         description: {type: string}
 ```
 
-Glee validates inputs against `inputs.schema` before execution and validates outputs against `outputs.schema` after execution.
+Glee validates inputs against `inputs.schema` before execution. If `outputs.schema` is provided, Glee validates outputs after execution; otherwise, the raw output is returned as-is.
 
 Permissions schema:
 
@@ -66,6 +68,9 @@ permissions:
       required: true
 ```
 
+Notes:
+- `permissions.fs.read` and `permissions.fs.write` entries are resolved from the project root (the directory containing `.glee/`) when relative paths are used.
+
 Secret resolution:
 
 ```text
@@ -77,7 +82,7 @@ If a secret is listed in permissions, it must exist in env.
 ## Tool Definition Format
 
 ```yaml
-# .glee/tools/web-search/tool.yml
+# .glee/tools/web_search/tool.yml
 name: web_search
 description: Search the web for information using Brave Search API
 kind: http
@@ -137,7 +142,7 @@ exec:
 permissions:
   network: true
   fs:
-    read: ["."]
+    read: []
     write: []
   secrets:
     BRAVE_API_KEY:
@@ -146,8 +151,7 @@ permissions:
 
 approval:
   required: true
-  reason: Uses network and secrets
-
+  reason: Accesses external API with secrets
 
 examples:
   - description: Search for Python web frameworks
@@ -172,7 +176,7 @@ examples:
 ## More Examples
 
 ```yaml
-# .glee/tools/slack-notify/tool.yml
+# .glee/tools/slack_notify/tool.yml
 name: slack_notify
 description: Send a message to a Slack channel
 kind: http
@@ -212,7 +216,7 @@ exec:
 permissions:
   network: true
   fs:
-    read: ["."]
+    read: []
     write: []
   secrets:
     SLACK_BOT_TOKEN:
@@ -221,8 +225,7 @@ permissions:
 
 approval:
   required: true
-  reason: Uses network and secrets
-
+  reason: Sends messages to external service
 
 examples:
   - description: Send a notification to #general
@@ -242,7 +245,7 @@ examples:
 ```
 
 ```yaml
-# .glee/tools/repo-scan/tool.yml
+# .glee/tools/repo_scan/tool.yml
 name: repo_scan
 description: Scan repo for TODOs
 kind: command
@@ -280,19 +283,18 @@ permissions:
 
 approval:
   required: false
-  reason: Read-only scan
-
 
 examples:
   - description: Scan current repo
     params:
       path: "."
     expected_output: |
-      TODO: ...
+      Scan complete.
+      Matches found: 2
 ```
 
 ```yaml
-# .glee/tools/repo-stats/tool.yml
+# .glee/tools/repo_stats/tool.yml
 name: repo_stats
 description: Compute repo stats (files, LOC)
 kind: python
@@ -330,8 +332,6 @@ permissions:
 
 approval:
   required: false
-  reason: Read-only analysis
-
 
 examples:
   - description: Get stats for current repo
@@ -352,7 +352,7 @@ examples:
 
 ```
 Agent: "I need to search for Python frameworks"
-    -> reads .glee/tools/web-search/tool.yml
+    -> reads .glee/tools/web_search/tool.yml
 Agent: "I'll use web_search with query='best python frameworks'"
     -> glee_tool(name="web_search", params={query: "best python frameworks"})
 Glee: executes HTTP request to Brave API
@@ -360,18 +360,73 @@ Glee: executes HTTP request to Brave API
 Agent: receives [{title, url, description}, ...]
 ```
 
+## Error Handling
+
+Glee handles errors at each execution stage:
+
+| Error Type | Behavior |
+|------------|----------|
+| Input validation fails | Returns error with schema violations, tool not executed |
+| HTTP request fails (network/timeout) | Returns error with status code and message |
+| Command exits with code not in `exit_codes_ok` | Returns error with exit code and stderr |
+| Python function raises exception | Returns error with exception type and message |
+| Timeout exceeded | Process killed, returns timeout error |
+| Output validation fails | Returns warning (output still returned) |
+| Secret not found in environment | Returns error, tool not executed |
+
+Agents receive structured error responses they can use to retry, fallback, or report to the user.
+
+## HTTP Response Handling
+
+For `kind: http` tools, response processing works as follows:
+
+- **`response.json_path`:** If set, extracts a nested value (e.g., `web.results` extracts `response["web"]["results"]`) and uses it as the response body for any further processing.
+- **`response.fields`:** Optional projection step that defines the final output shape. Each entry has a `name` (output key) and a `path` (where to read the value from in the current response body). If the response body is a list, the mapping is applied to each item and returns a list of mapped objects.
+- **Default behavior:** If `response.json_path` is not set, the raw JSON response body is used. If `response.fields` is not set, the current response body is returned as-is.
+
+Example (project each item to `{title, url}`):
+
+```yaml
+exec:
+  http:
+    response:
+      json_path: web.results
+      fields:
+        - name: title
+          path: title
+        - name: url
+          path: url
+```
+
+Input JSON (excerpt) and output:
+
+```json
+// Raw response body
+{"web":{"results":[{"title":"A","url":"https://a","description":"..."}]}}
+```
+
+```json
+// After json_path: web.results
+[{"title":"A","url":"https://a","description":"..."}]
+```
+
+```json
+// After fields mapping
+[{"title":"A","url":"https://a"}]
+```
+
 ## Tool Storage and Discovery
 
 Glee loads tools from `.glee/tools/<tool_name>/tool.yml`.
 
-For tools, relative paths in `exec.command.entrypoint` are resolved from the tool directory unless absolute.
+All relative paths in tool manifests are resolved from the project root (the directory containing `.glee/`). This includes `exec.command.entrypoint`, `exec.command.cwd`, `exec.python.cwd`, `exec.python.venv`, and `permissions.fs.*`. Absolute paths are honored.
 
 Tool directories can include supporting materials next to the manifest:
 
 ```
 .glee/
 └── tools/
-    └── web-search/
+    └── web_search/
         ├── tool.yml
         ├── scripts/
         ├── assets/
@@ -386,10 +441,10 @@ Tool directories can include supporting materials next to the manifest:
 ├── agents/           # Reusable workers
 ├── workflows/        # Orchestration
 ├── tools/            # Tools (HTTP, command, python)
-│   ├── web-search/
-│   ├── repo-scan/
-│   ├── repo-stats/
-│   ├── slack-notify/
+│   ├── web_search/
+│   ├── repo_scan/
+│   ├── repo_stats/
+│   ├── slack_notify/
 │   └── ...
 └── sessions/
 ```
@@ -435,7 +490,7 @@ glee_tool(
 
 ### `glee_tool_create`
 
-Create a new tool definition (AI-native):
+Create a new tool definition (AI-native). The `definition` follows the same structure as `tool.yml`:
 
 ```python
 glee_tool_create(
@@ -444,11 +499,30 @@ glee_tool_create(
         "description": "Get current weather for a location",
         "kind": "http",
         "version": 1,
-        "inputs": {"schema": {...}},
+        "inputs": {
+            "schema": {
+                "type": "object",
+                "required": ["location"],
+                "properties": {
+                    "location": {"type": "string", "description": "City name"}
+                }
+            }
+        },
         "outputs": {"format": "json"},
-        "exec": {...},
-        "permissions": {...},
-        "approval": {...}
+        "exec": {
+            "http": {
+                "method": "GET",
+                "url": "https://api.weather.com/v1/current",
+                "query": {"q": "${location}"},
+                "headers": {"Authorization": "Bearer ${WEATHER_API_KEY}"}
+            }
+        },
+        "permissions": {
+            "network": True,
+            "fs": {"read": [], "write": []},
+            "secrets": {"WEATHER_API_KEY": {"type": "string", "required": True}}
+        },
+        "approval": {"required": True, "reason": "Accesses external API"}
     }
 )
 # Creates .glee/tools/weather/tool.yml
@@ -468,9 +542,13 @@ glee_tools_list()
 # ]
 ```
 
-## Implementation Phases
+---
 
-### Phase 1: glee_task (v0.3)
+## Roadmap
+
+> **Note:** This section tracks implementation progress. See also: [subagents.md](subagents.md), [workflows.md](workflows.md).
+
+### Phase 1: glee_task (v0.3) ✓
 - [x] Design docs (subagents.md, workflows.md, tools.md)
 - [x] `glee_task` MCP tool - spawn CLI agents (codex, claude, gemini)
 - [x] Session management (generate ID, store context)

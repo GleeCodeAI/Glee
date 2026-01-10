@@ -7,6 +7,13 @@ from typing import IO, Any
 
 import yaml
 
+from glee.types import (
+    AutonomyConfig,
+    AutonomyLevel,
+    CheckpointAction,
+    CheckpointSeverity,
+)
+
 
 # XDG config directory
 GLEE_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "glee"
@@ -14,6 +21,11 @@ GLEE_PROJECT_DIR = ".glee"
 
 # Supported reviewer CLIs
 SUPPORTED_REVIEWERS = ["codex", "claude", "gemini"]
+
+# Valid autonomy levels
+VALID_AUTONOMY_LEVELS = [level.value for level in AutonomyLevel]
+VALID_SEVERITIES = [sev.value for sev in CheckpointSeverity]
+VALID_ACTIONS = [action.value for action in CheckpointAction]
 
 
 def _dump_yaml(data: dict[str, Any], file: IO[str]) -> None:
@@ -250,10 +262,14 @@ def save_project_config(config: dict[str, Any], project_path: str | None = None)
     if project_path is None:
         project_path = os.getcwd()
 
-    ordered = {
+    ordered: dict[str, Any] = {
         "project": config.get("project", {}),
         "reviewers": config.get("reviewers", {"primary": "codex"}),
     }
+
+    # Include autonomy config if present
+    if "autonomy" in config:
+        ordered["autonomy"] = config["autonomy"]
 
     with open(Path(project_path) / GLEE_PROJECT_DIR / "config.yml", "w") as f:
         _dump_yaml(ordered, f)
@@ -328,3 +344,246 @@ def clear_reviewer(tier: str = "secondary", project_path: str | None = None) -> 
         save_project_config(config, project_path)
         return True
     return False
+
+
+# =============================================================================
+# Autonomy Configuration
+# =============================================================================
+
+
+class AutonomyConfigError(ValueError):
+    """Error raised when autonomy configuration is invalid."""
+
+    pass
+
+
+def validate_autonomy_config(autonomy_data: dict[str, Any]) -> list[str]:
+    """Validate autonomy configuration.
+
+    Args:
+        autonomy_data: Raw autonomy config dict from YAML
+
+    Returns:
+        List of validation error messages (empty if valid)
+    """
+    errors: list[str] = []
+
+    # Validate level
+    level = autonomy_data.get("level")
+    if level is not None and level not in VALID_AUTONOMY_LEVELS:
+        errors.append(
+            f"Invalid autonomy level: '{level}'. "
+            f"Valid: {', '.join(VALID_AUTONOMY_LEVELS)}"
+        )
+
+    # Validate checkpoint_policy
+    checkpoint_policy = autonomy_data.get("checkpoint_policy", {})
+    for severity, action in checkpoint_policy.items():
+        if severity not in VALID_SEVERITIES:
+            errors.append(
+                f"Invalid severity in checkpoint_policy: '{severity}'. "
+                f"Valid: {', '.join(VALID_SEVERITIES)}"
+            )
+        if action not in VALID_ACTIONS:
+            errors.append(
+                f"Invalid action in checkpoint_policy: '{action}'. "
+                f"Valid: {', '.join(VALID_ACTIONS)}"
+            )
+
+    # Validate require_approval_for
+    require_approval_for = autonomy_data.get("require_approval_for", [])
+    if not isinstance(require_approval_for, list):
+        errors.append("require_approval_for must be a list")
+    else:
+        for raf_item in require_approval_for:
+            if not isinstance(raf_item, str):
+                errors.append("require_approval_for must be a list of strings")
+                break
+
+    return errors
+
+
+def get_autonomy_config(project_path: str | None = None) -> AutonomyConfig:
+    """Get autonomy configuration for a project.
+
+    Returns default (supervised) if not configured.
+
+    Args:
+        project_path: Optional project path
+
+    Returns:
+        AutonomyConfig instance
+    """
+    config = get_project_config(project_path)
+    if not config:
+        return AutonomyConfig()
+
+    autonomy_data = config.get("autonomy", {})
+
+    # Validate before parsing
+    errors = validate_autonomy_config(autonomy_data)
+    if errors:
+        raise AutonomyConfigError(f"Invalid autonomy config: {'; '.join(errors)}")
+
+    return AutonomyConfig.from_dict(autonomy_data)
+
+
+def set_autonomy_level(
+    level: str,
+    project_path: str | None = None,
+) -> AutonomyConfig:
+    """Set the autonomy level.
+
+    Args:
+        level: Autonomy level (hitl, supervised, autonomous, yolo)
+        project_path: Optional project path
+
+    Returns:
+        Updated AutonomyConfig
+    """
+    if level not in VALID_AUTONOMY_LEVELS:
+        raise ValueError(
+            f"Invalid autonomy level: '{level}'. "
+            f"Valid: {', '.join(VALID_AUTONOMY_LEVELS)}"
+        )
+
+    config = get_project_config(project_path)
+    if not config:
+        raise ValueError("Project not initialized. Run 'glee init' first.")
+
+    autonomy_data = config.get("autonomy", {})
+    autonomy_data["level"] = level
+    config["autonomy"] = autonomy_data
+
+    save_project_config(config, project_path)
+    return AutonomyConfig.from_dict(autonomy_data)
+
+
+def set_checkpoint_policy(
+    severity: str,
+    action: str,
+    project_path: str | None = None,
+) -> AutonomyConfig:
+    """Set a checkpoint policy override for a specific severity.
+
+    Args:
+        severity: Checkpoint severity (low, medium, high, critical)
+        action: Action to take (auto, suspend)
+        project_path: Optional project path
+
+    Returns:
+        Updated AutonomyConfig
+    """
+    if severity not in VALID_SEVERITIES:
+        raise ValueError(
+            f"Invalid severity: '{severity}'. Valid: {', '.join(VALID_SEVERITIES)}"
+        )
+    if action not in VALID_ACTIONS:
+        raise ValueError(
+            f"Invalid action: '{action}'. Valid: {', '.join(VALID_ACTIONS)}"
+        )
+
+    config = get_project_config(project_path)
+    if not config:
+        raise ValueError("Project not initialized. Run 'glee init' first.")
+
+    autonomy_data = config.get("autonomy", {})
+    if "checkpoint_policy" not in autonomy_data:
+        autonomy_data["checkpoint_policy"] = {}
+    autonomy_data["checkpoint_policy"][severity] = action
+    config["autonomy"] = autonomy_data
+
+    save_project_config(config, project_path)
+    return AutonomyConfig.from_dict(autonomy_data)
+
+
+def add_require_approval_for(
+    checkpoint_type: str,
+    project_path: str | None = None,
+) -> AutonomyConfig:
+    """Add a checkpoint type that always requires approval.
+
+    Args:
+        checkpoint_type: Type of checkpoint (e.g., "commit", "deploy", "delete")
+        project_path: Optional project path
+
+    Returns:
+        Updated AutonomyConfig
+    """
+    config = get_project_config(project_path)
+    if not config:
+        raise ValueError("Project not initialized. Run 'glee init' first.")
+
+    autonomy_data = config.get("autonomy", {})
+    if "require_approval_for" not in autonomy_data:
+        autonomy_data["require_approval_for"] = []
+
+    if checkpoint_type not in autonomy_data["require_approval_for"]:
+        autonomy_data["require_approval_for"].append(checkpoint_type)
+
+    config["autonomy"] = autonomy_data
+
+    save_project_config(config, project_path)
+    return AutonomyConfig.from_dict(autonomy_data)
+
+
+def remove_require_approval_for(
+    checkpoint_type: str,
+    project_path: str | None = None,
+) -> AutonomyConfig:
+    """Remove a checkpoint type from require_approval_for.
+
+    Args:
+        checkpoint_type: Type of checkpoint to remove
+        project_path: Optional project path
+
+    Returns:
+        Updated AutonomyConfig
+    """
+    config = get_project_config(project_path)
+    if not config:
+        raise ValueError("Project not initialized. Run 'glee init' first.")
+
+    autonomy_data = config.get("autonomy", {})
+    require_list = autonomy_data.get("require_approval_for", [])
+
+    if checkpoint_type in require_list:
+        require_list.remove(checkpoint_type)
+        autonomy_data["require_approval_for"] = require_list
+        config["autonomy"] = autonomy_data
+        save_project_config(config, project_path)
+
+    return AutonomyConfig.from_dict(autonomy_data)
+
+
+def clear_checkpoint_policy(
+    severity: str | None = None,
+    project_path: str | None = None,
+) -> AutonomyConfig:
+    """Clear checkpoint policy overrides.
+
+    Args:
+        severity: Specific severity to clear, or None to clear all
+        project_path: Optional project path
+
+    Returns:
+        Updated AutonomyConfig
+    """
+    config = get_project_config(project_path)
+    if not config:
+        raise ValueError("Project not initialized. Run 'glee init' first.")
+
+    autonomy_data = config.get("autonomy", {})
+    checkpoint_policy = autonomy_data.get("checkpoint_policy", {})
+
+    if severity:
+        if severity in checkpoint_policy:
+            del checkpoint_policy[severity]
+    else:
+        checkpoint_policy = {}
+
+    autonomy_data["checkpoint_policy"] = checkpoint_policy
+    config["autonomy"] = autonomy_data
+
+    save_project_config(config, project_path)
+    return AutonomyConfig.from_dict(autonomy_data)
