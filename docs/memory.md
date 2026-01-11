@@ -242,16 +242,19 @@ There's no `update` command - vectors must be regenerated when content changes, 
 
 ## Data Model
 
-Each memory entry contains:
+Memory is stored in two databases for different query patterns:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | 8-character UUID |
-| `category` | string | Category name |
-| `content` | string | The memory content |
-| `metadata` | JSON | Optional metadata |
-| `created_at` | datetime | Creation timestamp |
-| `vector` | float[] | 384-dim embedding (LanceDB only) |
+| Field | DuckDB | LanceDB | Notes |
+|-------|--------|---------|-------|
+| `id` | ✓ | ✓ | 8-char UUID (`uuid.uuid4()[:8]`) |
+| `category` | ✓ | ✓ | Category name |
+| `content` | ✓ | ✓ | The memory content |
+| `metadata` | ✓ | ✗ | JSON, DuckDB only |
+| `created_at` | ✓ | ✗ | Datetime, DuckDB only |
+| `vector` | ✗ | ✓ | 384-dim from bge-small-en-v1.5 |
+
+- **DuckDB**: SQL queries, filtering by category, metadata lookup
+- **LanceDB**: Semantic vector search
 
 ## Limitations
 
