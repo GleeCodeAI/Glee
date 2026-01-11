@@ -7,10 +7,38 @@ from typing import Any, cast
 
 import typer
 from loguru import logger
-from rich.console import Console
+from rich.console import Console, RenderableType
+from rich.padding import Padding
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
 
 from glee.logging import get_agent_logger, setup_logging
+
+# Theme colors for consistent styling
+class Theme:
+    """Consistent color theme for CLI output."""
+    PRIMARY = "cyan"
+    SUCCESS = "green"
+    WARNING = "yellow"
+    ERROR = "red"
+    MUTED = "dim"
+    ACCENT = "magenta"
+    INFO = "blue"
+    HEADER = "bold cyan"
+    TITLE = "bold white"
+
+
+# Layout constants
+LEFT_PAD = 2  # Left margin for all output
+
+
+def padded(renderable: RenderableType, top: int = 1, bottom: int = 1) -> Padding:
+    """Wrap a renderable with consistent padding (top, right, bottom, left)."""
+    return Padding(renderable, (top, 0, bottom, LEFT_PAD))
+
 
 app = typer.Typer(
     name="glee",
@@ -38,7 +66,13 @@ def get_version() -> str:
 @app.command()
 def version():
     """Show Glee version."""
-    console.print(f"glee {get_version()}")
+    console.print(padded(Text.assemble(
+        ("🎭 ", "bold"),
+        ("Glee", f"bold {Theme.PRIMARY}"),
+        (f" v{get_version()}", Theme.MUTED),
+    ), bottom=0))
+    line_width = max(20, (console.width - LEFT_PAD) // 2)
+    console.print(padded(Text("─" * line_width, style=Theme.MUTED), top=0))
 
 
 @app.callback()
@@ -87,57 +121,124 @@ def check_mcp_registration(project_path: str | None = None) -> bool:
         return False
 
 
+def check_hooks_registration(project_path: str | None = None) -> dict[str, bool]:
+    """Check if Glee hooks are registered in .claude/settings.local.json."""
+    import json
+
+    if project_path is None:
+        project_path = os.getcwd()
+
+    settings_path = Path(project_path) / ".claude" / "settings.local.json"
+    result = {"SessionStart": False, "SessionEnd": False, "PreCompact": False}
+
+    if not settings_path.exists():
+        return result
+
+    try:
+        with open(settings_path) as f:
+            settings = json.load(f)
+        hooks = settings.get("hooks", {})
+
+        for hook_name in result:
+            hook_list = hooks.get(hook_name, [])
+            for hook_config in hook_list:
+                inner_hooks = hook_config.get("hooks", [])
+                for h in inner_hooks:
+                    cmd = str(h.get("command", ""))
+                    if "glee" in cmd:
+                        result[hook_name] = True
+                        break
+    except Exception:
+        pass
+
+    return result
+
+
 @app.command()
 def status():
     """Show Glee status and current project configuration."""
     from glee.agents import registry
     from glee.config import get_project_config, get_reviewers
 
-    # === Global Status ===
-    console.print(f"[bold]Glee v{get_version()}[/bold]")
+    # === Header ===
+    console.print(padded(Text.assemble(
+        ("🎭 ", "bold"),
+        ("Glee", f"bold {Theme.PRIMARY}"),
+        (f" v{get_version()}", Theme.MUTED),
+    ), bottom=0))
+    line_width = max(20, (console.width - LEFT_PAD) // 2)
+    console.print(padded(Text("─" * line_width, style=Theme.MUTED), top=0, bottom=0))
 
-    # CLI availability
+    # === Agent CLIs ===
+    cli_tree = Tree(f"[{Theme.HEADER}]🤖 Agent CLIs[/{Theme.HEADER}]")
     cli_agents = ["claude", "codex", "gemini"]
-    for i, cli_name in enumerate(cli_agents):
+    for cli_name in cli_agents:
         agent = registry.get(cli_name)
-        is_last_cli = i == len(cli_agents) - 1
-        prefix = "└─" if is_last_cli else "├─"
         if agent and agent.is_available():
-            console.print(f"{prefix} {cli_name.title()} CLI: [green]found ✓[/green]")
+            cli_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {cli_name.title()}")
         else:
-            console.print(f"{prefix} {cli_name.title()} CLI: [dim]not found[/dim]")
-
-    console.print()
+            cli_tree.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] {cli_name.title()} [{Theme.MUTED}]not found[/{Theme.MUTED}]")
+    console.print(padded(cli_tree, top=0, bottom=0))
 
     # === Project Status ===
     config = get_project_config()
     if not config:
-        console.print("[dim]Current directory: not configured[/dim]")
+        console.print(padded(Panel(
+            f"[{Theme.MUTED}]No project configured in current directory[/{Theme.MUTED}]\n"
+            f"Run [{Theme.PRIMARY}]glee init <agent>[/{Theme.PRIMARY}] to get started",
+            title="[dim]Project[/dim]",
+            border_style=Theme.MUTED
+        )))
         return
 
     project = config.get("project", {})
-    console.print(f"[bold]Project: {project.get('name')}[/bold]")
+    project_tree = Tree(f"[{Theme.HEADER}]📁 {project.get('name')}[/{Theme.HEADER}]")
 
     # MCP Server registration
     mcp_registered = check_mcp_registration()
-    mcp_status = "[green]registered ✓[/green]" if mcp_registered else "[dim]not registered[/dim]"
-    console.print(f"├─ MCP: {mcp_status}")
+    if mcp_registered:
+        project_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] MCP registered")
+    else:
+        project_tree.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] MCP [{Theme.MUTED}]not registered[/{Theme.MUTED}]")
+
+    # Hooks registration
+    hooks = check_hooks_registration()
+    hooks_branch = project_tree.add(f"[{Theme.INFO}]🪝 Hooks[/{Theme.INFO}]")
+    if hooks["SessionStart"]:
+        hooks_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] SessionStart")
+    else:
+        hooks_branch.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] SessionStart [{Theme.MUTED}]not set[/{Theme.MUTED}]")
+    if hooks["SessionEnd"]:
+        hooks_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] SessionEnd")
+    else:
+        hooks_branch.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] SessionEnd [{Theme.MUTED}]not set[/{Theme.MUTED}]")
+    if hooks["PreCompact"]:
+        hooks_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] PreCompact")
+    else:
+        hooks_branch.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] PreCompact [{Theme.MUTED}]not set[/{Theme.MUTED}]")
 
     # Show reviewers
     reviewers = get_reviewers()
     primary = reviewers.get("primary", "codex")
     secondary = reviewers.get("secondary")
 
+    reviewer_branch = project_tree.add(f"[{Theme.INFO}]👥 Reviewers[/{Theme.INFO}]")
     primary_agent = registry.get(primary)
-    primary_available = "✓" if primary_agent and primary_agent.is_available() else "✗"
-    console.print(f"├─ Primary reviewer: [{primary_available}] {primary}")
+    if primary_agent and primary_agent.is_available():
+        reviewer_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Primary: [{Theme.PRIMARY}]{primary}[/{Theme.PRIMARY}]")
+    else:
+        reviewer_branch.add(f"[{Theme.WARNING}]![/{Theme.WARNING}] Primary: [{Theme.PRIMARY}]{primary}[/{Theme.PRIMARY}] [{Theme.MUTED}]not available[/{Theme.MUTED}]")
 
     if secondary:
         secondary_agent = registry.get(secondary)
-        secondary_available = "✓" if secondary_agent and secondary_agent.is_available() else "✗"
-        console.print(f"└─ Secondary reviewer: [{secondary_available}] {secondary}")
+        if secondary_agent and secondary_agent.is_available():
+            reviewer_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Secondary: [{Theme.ACCENT}]{secondary}[/{Theme.ACCENT}]")
+        else:
+            reviewer_branch.add(f"[{Theme.WARNING}]![/{Theme.WARNING}] Secondary: [{Theme.ACCENT}]{secondary}[/{Theme.ACCENT}] [{Theme.MUTED}]not available[/{Theme.MUTED}]")
     else:
-        console.print("└─ Secondary reviewer: [dim]not set[/dim]")
+        reviewer_branch.add(f"[{Theme.MUTED}]○ Secondary: not set[/{Theme.MUTED}]")
+
+    console.print(padded(project_tree, top=0))
 
 
 @app.command()
@@ -145,16 +246,26 @@ def agents():
     """List available agent CLIs."""
     from glee.agents import registry
 
-    table = Table(title="Available Agent CLIs")
-    table.add_column("Name", style="cyan")
-    table.add_column("Command", style="green")
-    table.add_column("Available", style="magenta")
+    table = Table(
+        title="🤖 Available Agent CLIs",
+        title_style=Theme.HEADER,
+        border_style=Theme.MUTED,
+        header_style=f"bold {Theme.PRIMARY}",
+        show_lines=False,
+        padding=(0, 1),
+    )
+    table.add_column("Agent", style=Theme.PRIMARY)
+    table.add_column("Command", style=Theme.MUTED)
+    table.add_column("Status", justify="center")
 
     for name, agent in registry.agents.items():
-        available = "[green]Yes[/green]" if agent.is_available() else "[red]No[/red]"
-        table.add_row(name, agent.command, available)
+        if agent.is_available():
+            status = Text("● Ready", style=Theme.SUCCESS)
+        else:
+            status = Text("○ Not found", style=Theme.MUTED)
+        table.add_row(name.title(), agent.command, status)
 
-    console.print(table)
+    console.print(padded(table))
 
 
 @app.command()
@@ -342,32 +453,41 @@ def init(
     ]
 
     if agent not in valid_agents:
-        console.print(f"[red]Unknown agent: {agent}[/red]")
-        console.print(f"Valid agents: {', '.join(valid_agents)}")
+        console.print(padded(Panel(
+            f"Unknown agent: [{Theme.ERROR}]{agent}[/{Theme.ERROR}]\n\n"
+            f"Valid agents: [{Theme.PRIMARY}]{', '.join(valid_agents)}[/{Theme.PRIMARY}]",
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR
+        )))
         raise typer.Exit(1)
 
     project_path = os.getcwd()
     project_id = str(uuid.uuid4()) if new_id else None
 
     config = init_project(project_path, project_id, agent=agent)
-    console.print("[green]Initialized Glee project:[/green]")
-    console.print(f"  ID: {config['project']['id']}")
-    console.print(f"  Config: .glee/config.yml")
+
+    # Build success tree
+    init_tree = Tree(f"[{Theme.SUCCESS}]✓ Initialized Glee project[/{Theme.SUCCESS}]")
+    init_tree.add(f"[{Theme.MUTED}]ID:[/{Theme.MUTED}] [{Theme.PRIMARY}]{config['project']['id'][:8]}...[/{Theme.PRIMARY}]")
+    init_tree.add(f"[{Theme.MUTED}]Config:[/{Theme.MUTED}] .glee/config.yml")
 
     reviewers = config.get("reviewers", {})
-    console.print(f"  Primary reviewer: {reviewers.get('primary', 'codex')}")
+    init_tree.add(f"[{Theme.MUTED}]Primary reviewer:[/{Theme.MUTED}] [{Theme.PRIMARY}]{reviewers.get('primary', 'codex')}[/{Theme.PRIMARY}]")
 
     if agent == "claude":
+        integration_branch = init_tree.add(f"[{Theme.INFO}]Claude integration[/{Theme.INFO}]")
         if config.get("_mcp_registered"):
-            console.print("  MCP: [green].mcp.json created[/green]")
+            integration_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] MCP: .mcp.json created")
         else:
-            console.print("  MCP: [dim].mcp.json already exists[/dim]")
+            integration_branch.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] MCP: already exists")
         if config.get("_hook_registered"):
-            console.print("  Hooks: [green]SessionStart + SessionEnd registered[/green]")
+            integration_branch.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Hooks: SessionStart + SessionEnd")
         else:
-            console.print("  Hooks: [dim]already configured[/dim]")
+            integration_branch.add(f"[{Theme.MUTED}]○[/{Theme.MUTED}] Hooks: already configured")
     else:
-        console.print(f"  {agent.title()}: [yellow]hook integration not yet implemented[/yellow]")
+        init_tree.add(f"[{Theme.WARNING}]![/{Theme.WARNING}] {agent.title()}: hook integration not yet implemented")
+
+    console.print(padded(init_tree))
 
 
 @app.command()
@@ -404,15 +524,22 @@ def review(
         else:
             console.print("[yellow]Warning: No secondary reviewer configured[/yellow]")
 
-    console.print("[bold]Review Plan[/bold]")
-    console.print(f"  Target: {review_target}")
-    console.print(f"  Reviewer(s): {', '.join(reviewers_to_run)}")
+    # Review plan panel
+    plan_content = Text()
+    plan_content.append("Target: ", style=Theme.MUTED)
+    plan_content.append(f"{review_target}\n", style=Theme.PRIMARY)
+    plan_content.append("Reviewers: ", style=Theme.MUTED)
+    plan_content.append(f"{', '.join(reviewers_to_run)}", style=Theme.ACCENT)
     if focus_list:
-        console.print(f"  Focus: {', '.join(focus_list)}")
+        plan_content.append("\nFocus: ", style=Theme.MUTED)
+        plan_content.append(f"{', '.join(focus_list)}", style=Theme.INFO)
+
+    console.print(Panel(plan_content, title=f"[{Theme.HEADER}]📋 Review Plan[/{Theme.HEADER}]", border_style=Theme.PRIMARY))
     console.print()
 
     logger.info(f"Starting review with: {', '.join(reviewers_to_run)}")
-    console.print("[green]Running review...[/green]\n")
+    console.print(f"[{Theme.INFO}]Running review...[/{Theme.INFO}]")
+    console.print()
 
     results: dict[str, dict[str, Any]] = {}
 
@@ -436,34 +563,44 @@ def review(
 
     # Display summary
     console.print()
-    console.print("[bold]Review Summary[/bold]")
-    console.print("=" * 60)
+    console.print(Rule(f"[{Theme.HEADER}]Review Summary[/{Theme.HEADER}]", style=Theme.MUTED))
+    console.print()
 
     all_approved = True
+    summary_tree = Tree(f"[{Theme.INFO}]📊 Results[/{Theme.INFO}]")
     for reviewer_name, data in results.items():
         if data["error"]:
-            console.print(f"  {reviewer_name}: [red]Error - {data['error']}[/red]")
+            summary_tree.add(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {reviewer_name}: [{Theme.ERROR}]{data['error']}[/{Theme.ERROR}]")
             all_approved = False
         elif data["result"]:
             result = data["result"]
             if result.error:
-                console.print(f"  {reviewer_name}: [red]Error[/red]")
+                summary_tree.add(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {reviewer_name}: [{Theme.ERROR}]Error[/{Theme.ERROR}]")
                 all_approved = False
             else:
                 if "NEEDS_CHANGES" in result.output.upper():
-                    console.print(f"  {reviewer_name}: [yellow]Changes requested[/yellow]")
+                    summary_tree.add(f"[{Theme.WARNING}]![/{Theme.WARNING}] {reviewer_name}: [{Theme.WARNING}]Changes requested[/{Theme.WARNING}]")
                     all_approved = False
                 else:
-                    console.print(f"  {reviewer_name}: [green]Approved[/green]")
+                    summary_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reviewer_name}: [{Theme.SUCCESS}]Approved[/{Theme.SUCCESS}]")
 
+    console.print(summary_tree)
     console.print()
-    console.print("=" * 60)
+
     if all_approved:
         logger.info("Review completed: approved")
-        console.print("[bold green]✓ Approved[/bold green]")
+        console.print(Panel(
+            f"[{Theme.SUCCESS}]✓ All reviewers approved[/{Theme.SUCCESS}]",
+            border_style=Theme.SUCCESS,
+            padding=(0, 2)
+        ))
     else:
         logger.warning("Review completed: changes requested")
-        console.print("[bold yellow]⚠ Changes requested[/bold yellow]")
+        console.print(Panel(
+            f"[{Theme.WARNING}]⚠ Changes requested[/{Theme.WARNING}]",
+            border_style=Theme.WARNING,
+            padding=(0, 2)
+        ))
 
 
 @app.command("warmup-session")
@@ -762,7 +899,7 @@ def memory_add(
                 raise typer.Exit(1)
 
         memory_id = memory.add(category=category, content=content, metadata=metadata_obj)
-        console.print(f"[green]Added memory {memory_id} to {category}[/green]")
+        console.print(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Added memory [{Theme.PRIMARY}]{memory_id}[/{Theme.PRIMARY}] to [{Theme.ACCENT}]{category}[/{Theme.ACCENT}]")
     except typer.Exit:
         raise
     except Exception as e:
@@ -791,29 +928,35 @@ def memory_list(
         if category:
             results = memory.get_by_category(category)[:limit]
             if not results:
-                console.print(f"[yellow]No memories in category '{category}'[/yellow]")
+                console.print(f"[{Theme.WARNING}]No memories in category '{category}'[/{Theme.WARNING}]")
                 return
 
             title = category.replace("-", " ").replace("_", " ").title()
-            console.print(f"[bold]{title} ({len(results)} entries):[/bold]")
+            console.print(Panel(
+                f"[{Theme.MUTED}]{len(results)} entries[/{Theme.MUTED}]",
+                title=f"[{Theme.HEADER}]🧠 {title}[/{Theme.HEADER}]",
+                border_style=Theme.PRIMARY
+            ))
             for r in results:
-                console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('created_at')})")
+                console.print(f"\n[{Theme.PRIMARY}]{r.get('id')}[/{Theme.PRIMARY}] [{Theme.MUTED}]{r.get('created_at')}[/{Theme.MUTED}]")
                 console.print(f"  {r.get('content')}")
             return
 
         categories = memory.get_categories()
         if not categories:
-            console.print("[yellow]No memories found[/yellow]")
+            console.print(f"[{Theme.WARNING}]No memories found[/{Theme.WARNING}]")
             return
 
-        console.print("[bold]All Memories:[/bold]\n")
+        memory_tree = Tree(f"[{Theme.HEADER}]🧠 All Memories[/{Theme.HEADER}]")
         for cat in categories:
             results = memory.get_by_category(cat)[:limit]
             title = cat.replace("-", " ").replace("_", " ").title()
-            console.print(f"[bold cyan]{title}[/bold cyan] ({len(results)} entries)")
+            cat_branch = memory_tree.add(f"[{Theme.ACCENT}]{title}[/{Theme.ACCENT}] [{Theme.MUTED}]({len(results)} entries)[/{Theme.MUTED}]")
             for r in results:
-                console.print(f"  [{r.get('id')}] {r.get('content')}")
-            console.print()
+                mem_id = r.get('id', '')[:8]
+                mem_content = r.get('content', '')[:60]
+                cat_branch.add(f"[{Theme.MUTED}]{mem_id}[/{Theme.MUTED}] {mem_content}...")
+        console.print(padded(memory_tree))
     except typer.Exit:
         raise
     except Exception as e:
@@ -878,12 +1021,16 @@ def memory_search(
         memory.close()
 
         if not results:
-            console.print("[yellow]No memories found[/yellow]")
+            console.print(f"[{Theme.WARNING}]No memories found[/{Theme.WARNING}]")
             return
 
-        console.print(f"[bold]Found {len(results)} memories:[/bold]")
+        console.print(Panel(
+            f"[{Theme.MUTED}]Query:[/{Theme.MUTED}] [{Theme.PRIMARY}]{query}[/{Theme.PRIMARY}]",
+            title=f"[{Theme.HEADER}]🔍 Found {len(results)} memories[/{Theme.HEADER}]",
+            border_style=Theme.PRIMARY
+        ))
         for r in results:
-            console.print(f"\n[cyan]{r.get('id')}[/cyan] ({r.get('category')})")
+            console.print(f"\n[{Theme.PRIMARY}]{r.get('id')}[/{Theme.PRIMARY}] [{Theme.ACCENT}]{r.get('category')}[/{Theme.ACCENT}]")
             console.print(f"  {r.get('content')}")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -920,26 +1067,28 @@ def memory_stats():
         stats = memory.stats()
         memory.close()
 
-        console.print("[bold]Memory Statistics[/bold]")
-        console.print(f"  Total: {stats['total']}")
+        stats_tree = Tree(f"[{Theme.HEADER}]📊 Memory Statistics[/{Theme.HEADER}]")
+        stats_tree.add(f"[{Theme.MUTED}]Total:[/{Theme.MUTED}] [{Theme.PRIMARY}]{stats['total']}[/{Theme.PRIMARY}]")
 
         if stats["by_category"]:
-            console.print()
-            console.print("[bold]By Category:[/bold]")
+            cat_branch = stats_tree.add(f"[{Theme.INFO}]By Category[/{Theme.INFO}]")
             for cat, count in sorted(stats["by_category"].items()):
-                console.print(f"  {cat}: {count}")
+                cat_branch.add(f"[{Theme.ACCENT}]{cat}[/{Theme.ACCENT}]: [{Theme.PRIMARY}]{count}[/{Theme.PRIMARY}]")
 
-        if stats["oldest"]:
-            oldest = stats["oldest"]
-            if hasattr(oldest, "strftime"):
-                oldest = oldest.strftime("%Y-%m-%d %H:%M")
-            console.print(f"\n  Oldest: {oldest}")
+        if stats["oldest"] or stats["newest"]:
+            time_branch = stats_tree.add(f"[{Theme.INFO}]Time Range[/{Theme.INFO}]")
+            if stats["oldest"]:
+                oldest = stats["oldest"]
+                if hasattr(oldest, "strftime"):
+                    oldest = oldest.strftime("%Y-%m-%d %H:%M")
+                time_branch.add(f"[{Theme.MUTED}]Oldest:[/{Theme.MUTED}] {oldest}")
+            if stats["newest"]:
+                newest = stats["newest"]
+                if hasattr(newest, "strftime"):
+                    newest = newest.strftime("%Y-%m-%d %H:%M")
+                time_branch.add(f"[{Theme.MUTED}]Newest:[/{Theme.MUTED}] {newest}")
 
-        if stats["newest"]:
-            newest = stats["newest"]
-            if hasattr(newest, "strftime"):
-                newest = newest.strftime("%Y-%m-%d %H:%M")
-            console.print(f"  Newest: {newest}")
+        console.print(padded(stats_tree))
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -964,16 +1113,17 @@ def logs_show(
     results = query_logs(project_path, level=level, search=search, limit=limit)
 
     if not results:
-        console.print("[yellow]No logs found[/yellow]")
+        console.print(f"[{Theme.WARNING}]No logs found[/{Theme.WARNING}]")
         return
 
-    console.print(f"[bold]Recent logs ({len(results)} entries):[/bold]\n")
+    console.print(Rule(f"[{Theme.HEADER}]📝 Recent Logs ({len(results)} entries)[/{Theme.HEADER}]", style=Theme.MUTED))
+    console.print()
     for log in results:
         level_color = {
-            "DEBUG": "dim",
-            "INFO": "blue",
-            "WARNING": "yellow",
-            "ERROR": "red",
+            "DEBUG": Theme.MUTED,
+            "INFO": Theme.INFO,
+            "WARNING": Theme.WARNING,
+            "ERROR": Theme.ERROR,
         }.get(log["level"], "white")
 
         timestamp = log["timestamp"][:19]
@@ -991,15 +1141,19 @@ def logs_stats():
     stats = get_log_stats(project_path)
 
     if stats["total"] == 0:
-        console.print("[yellow]No logs found[/yellow]")
+        console.print(f"[{Theme.WARNING}]No logs found[/{Theme.WARNING}]")
         return
 
-    console.print("[bold]Log Statistics[/bold]")
-    console.print(f"  Total: {stats['total']}")
-    console.print()
-    console.print("[bold]By Level:[/bold]")
+    stats_tree = Tree(f"[{Theme.HEADER}]📊 Log Statistics[/{Theme.HEADER}]")
+    stats_tree.add(f"[{Theme.MUTED}]Total:[/{Theme.MUTED}] [{Theme.PRIMARY}]{stats['total']}[/{Theme.PRIMARY}]")
+
+    level_branch = stats_tree.add(f"[{Theme.INFO}]By Level[/{Theme.INFO}]")
+    level_colors = {"DEBUG": Theme.MUTED, "INFO": Theme.INFO, "WARNING": Theme.WARNING, "ERROR": Theme.ERROR}
     for level, count in sorted(stats["by_level"].items()):
-        console.print(f"  {level}: {count}")
+        color = level_colors.get(level, "white")
+        level_branch.add(f"[{color}]{level}[/{color}]: [{Theme.PRIMARY}]{count}[/{Theme.PRIMARY}]")
+
+    console.print(padded(stats_tree))
 
 
 @logs_app.command("agents")
@@ -1015,27 +1169,34 @@ def logs_agents(
     results = query_agent_logs(project_path, agent=agent, success_only=success_only, limit=limit)
 
     if not results:
-        console.print("[yellow]No agent logs found[/yellow]")
+        console.print(f"[{Theme.WARNING}]No agent logs found[/{Theme.WARNING}]")
         return
 
-    table = Table(title=f"Agent Logs (last {len(results)})")
-    table.add_column("ID", style="cyan", width=8)
-    table.add_column("Time", style="dim", width=19)
-    table.add_column("Agent", style="green", width=8)
-    table.add_column("Duration", style="yellow", width=8)
-    table.add_column("Status", width=8)
+    table = Table(
+        title=f"🤖 Agent Logs (last {len(results)})",
+        title_style=Theme.HEADER,
+        border_style=Theme.MUTED,
+        header_style=f"bold {Theme.PRIMARY}",
+        show_lines=False,
+        padding=(0, 1),
+    )
+    table.add_column("ID", style=Theme.PRIMARY, width=8)
+    table.add_column("Time", style=Theme.MUTED, width=19)
+    table.add_column("Agent", style=Theme.ACCENT, width=8)
+    table.add_column("Duration", style=Theme.WARNING, width=8)
+    table.add_column("Status", justify="center", width=8)
     table.add_column("Prompt", style="white", max_width=40, overflow="ellipsis")
 
     for log in results:
         timestamp = log["timestamp"][:19]
         duration = f"{log['duration_ms']}ms" if log["duration_ms"] else "-"
-        status = "[green]OK[/green]" if log["success"] else "[red]FAIL[/red]"
+        status = Text("● OK", style=Theme.SUCCESS) if log["success"] else Text("✗ FAIL", style=Theme.ERROR)
         prompt = (log["prompt"][:37] + "...") if len(log["prompt"]) > 40 else log["prompt"]
         prompt = prompt.replace("\n", " ")
 
         table.add_row(log["id"], timestamp, log["agent"], duration, status, prompt)
 
-    console.print(table)
+    console.print(padded(table))
 
 
 @logs_app.command("detail")
@@ -1050,33 +1211,56 @@ def logs_detail(
     log = get_agent_log(project_path, log_id)
 
     if not log:
-        console.print(f"[red]Log {log_id} not found[/red]")
+        console.print(padded(Panel(
+            f"Log [{Theme.PRIMARY}]{log_id}[/{Theme.PRIMARY}] not found",
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR
+        )))
         raise typer.Exit(1)
 
-    console.print("[bold]Agent Log Details[/bold]")
-    console.print(f"  ID: [cyan]{log['id']}[/cyan]")
-    console.print(f"  Time: {log['timestamp']}")
-    console.print(f"  Agent: [green]{log['agent']}[/green]")
-    console.print(f"  Duration: {log['duration_ms']}ms")
-    status = "[green]Success[/green]" if log["success"] else "[red]Failed[/red]"
-    console.print(f"  Status: {status}")
-    console.print()
+    # Build details tree
+    detail_tree = Tree(f"[{Theme.HEADER}]🔍 Agent Log Details[/{Theme.HEADER}]")
+    detail_tree.add(f"[{Theme.MUTED}]ID:[/{Theme.MUTED}] [{Theme.PRIMARY}]{log['id']}[/{Theme.PRIMARY}]")
+    detail_tree.add(f"[{Theme.MUTED}]Time:[/{Theme.MUTED}] {log['timestamp']}")
+    detail_tree.add(f"[{Theme.MUTED}]Agent:[/{Theme.MUTED}] [{Theme.ACCENT}]{log['agent']}[/{Theme.ACCENT}]")
+    detail_tree.add(f"[{Theme.MUTED}]Duration:[/{Theme.MUTED}] [{Theme.WARNING}]{log['duration_ms']}ms[/{Theme.WARNING}]")
+    if log["success"]:
+        detail_tree.add(f"[{Theme.MUTED}]Status:[/{Theme.MUTED}] [{Theme.SUCCESS}]✓ Success[/{Theme.SUCCESS}]")
+    else:
+        detail_tree.add(f"[{Theme.MUTED}]Status:[/{Theme.MUTED}] [{Theme.ERROR}]✗ Failed[/{Theme.ERROR}]")
+    console.print(padded(detail_tree, bottom=0))
 
-    console.print("[bold]Prompt:[/bold]")
-    console.print(log["prompt"])
-    console.print()
+    console.print(padded(Panel(
+        log["prompt"],
+        title=f"[{Theme.INFO}]Prompt[/{Theme.INFO}]",
+        border_style=Theme.MUTED,
+        padding=(0, 1)
+    ), top=0, bottom=0))
 
     if raw and log.get("raw"):
-        console.print("[bold]Raw Output:[/bold]")
-        console.print(log["raw"])
+        console.print(padded(Panel(
+            log["raw"],
+            title=f"[{Theme.INFO}]Raw Output[/{Theme.INFO}]",
+            border_style=Theme.MUTED,
+            padding=(0, 1)
+        ), top=0, bottom=0))
     elif log.get("output"):
-        console.print("[bold]Output:[/bold]")
-        console.print(log["output"])
+        console.print(padded(Panel(
+            log["output"],
+            title=f"[{Theme.SUCCESS}]Output[/{Theme.SUCCESS}]",
+            border_style=Theme.SUCCESS,
+            padding=(0, 1)
+        ), top=0, bottom=0))
 
     if log.get("error"):
-        console.print()
-        console.print("[bold red]Error:[/bold red]")
-        console.print(log["error"])
+        console.print(padded(Panel(
+            log["error"],
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR,
+            padding=(0, 1)
+        ), top=0))
+    else:
+        console.print()  # Bottom padding
 
 
 @app.command()
