@@ -96,13 +96,60 @@ glee_memory_delete(by="category", value="review", confirm=true)
 
 ### Memory Bootstrap
 
-`glee_memory_bootstrap` is special - it doesn't require an external LLM API. It gathers:
+`glee memory bootstrap` (or `glee_memory_bootstrap` MCP tool) populates memory for a legacy project by analyzing existing sessions and code.
 
-1. **Documentation**: README.md, CLAUDE.md, CONTRIBUTING.md, docs/
-2. **Package config**: pyproject.toml, package.json, Cargo.toml, go.mod
-3. **Directory structure**: Top 2 levels, excluding noise
+#### From Existing Claude Sessions (`~/.claude/projects/<hash>/*.jsonl`)
 
-Then returns this context with instructions. Claude Code (already an LLM) analyzes it and calls `glee_memory_add` to populate memories for architecture, conventions, dependencies, and decisions.
+| Category | What to Extract |
+|----------|-----------------|
+| `goal` | Past session objectives/tasks |
+| `decision` | Architectural decisions, tech choices made |
+| `open-loop` | Unfinished tasks, TODOs mentioned |
+| `constraint` | Rules/constraints mentioned (e.g., "don't use X") |
+| `session_summary` | Session summaries, key accomplishments |
+
+#### From Code Analysis
+
+| Category | What to Extract |
+|----------|-----------------|
+| `architecture` | Framework detection (React, FastAPI, Django, etc.), directory structure patterns |
+| `convention` | Code style, naming patterns, file organization |
+| `api` | REST/GraphQL endpoints, route patterns |
+| `schema` | Database models, table structures |
+| `dependency` | Key packages from package.json/pyproject.toml/Cargo.toml |
+| `security` | Auth patterns, env var usage, secrets handling |
+
+#### From Project Files
+
+| Source | What to Extract |
+|--------|-----------------|
+| `README.md` | Project description, setup instructions |
+| `CLAUDE.md` | Existing rules/guidelines for AI |
+| `.env.example` | Environment variable patterns |
+| `docker-compose.yml` | Service architecture |
+| `Makefile` / `justfile` | Common commands/workflows |
+| `CONTRIBUTING.md` | Contribution guidelines |
+| `docs/` | Documentation files |
+
+#### How It Works
+
+Bootstrap uses an LLM to analyze gathered context and extract structured memories.
+
+```bash
+# CLI usage
+glee memory bootstrap --from=claude
+glee memory bootstrap --from=codex
+glee memory bootstrap --from=gemini
+
+# MCP tool (called by Claude Code)
+glee_memory_bootstrap(from_agent="claude")
+```
+
+The process:
+1. Gather raw context (sessions, code, docs)
+2. Send to LLM for analysis
+3. LLM extracts structured memories
+4. Store in memory database
 
 ## Auto-Injection
 
