@@ -57,9 +57,8 @@ glee memory overview # Memory-only overview
 glee memory capture --json '{"goal":"Ship v1","constraints":["No new deps"],"decisions":["Use FastAPI"],"open_loops":["Add auth"],"recent_changes":["M api.py"],"summary":"Finish auth and tests"}'
 
 # Delete
-glee memory ops --action delete --memory-id abc123                  # Delete by ID
-glee memory ops --action delete_category --category review --confirm # Delete all in category
-glee memory ops --action delete_all --confirm                        # Delete everything
+glee memory ops --action delete --by id --value abc123              # Delete by ID
+glee memory ops --action delete --by category --value review --confirm # Delete all in category
 
 # Statistics
 glee memory stats
@@ -76,7 +75,9 @@ When Claude Code runs in a Glee project, these tools are available:
 
 | Tool | Description |
 |------|-------------|
-| `glee_memory_ops` | Add/list/delete memory entries |
+| `glee_memory_add` | Add a memory entry to a category |
+| `glee_memory_list` | List memories, optionally filtered by category |
+| `glee_memory_delete` | Delete memory by ID or category |
 | `glee_memory_capture` | Capture structured memory (goal, constraints, decisions, open loops, changes) |
 | `glee_memory_search` | Semantic search across memories |
 | `glee_memory_overview` | Get formatted overview for context |
@@ -87,9 +88,10 @@ When Claude Code runs in a Glee project, these tools are available:
 
 Example MCP calls:
 ```text
-glee_memory_ops(action="add", category="decision", content="Use FastAPI")
+glee_memory_add(category="decision", content="Use FastAPI")
 glee_memory_search(query="auth flow", limit=5)
-glee_memory_ops(action="delete_all", confirm=true)
+glee_memory_delete(by="id", value="abc123")
+glee_memory_delete(by="category", value="review", confirm=true)
 ```
 
 ### Memory Bootstrap
@@ -100,7 +102,7 @@ glee_memory_ops(action="delete_all", confirm=true)
 2. **Package config**: pyproject.toml, package.json, Cargo.toml, go.mod
 3. **Directory structure**: Top 2 levels, excluding noise
 
-Then returns this context with instructions. Claude Code (already an LLM) analyzes it and calls `glee_memory_ops` with `action="add"` to populate memories for architecture, conventions, dependencies, and decisions.
+Then returns this context with instructions. Claude Code (already an LLM) analyzes it and calls `glee_memory_add` to populate memories for architecture, conventions, dependencies, and decisions.
 
 ## Auto-Injection
 
@@ -162,7 +164,7 @@ glee memory search "what to do when API fails"
 
 If old information conflicts with new:
 
-1. Delete the outdated memory: `glee memory ops --action delete --memory-id <id>`
+1. Delete the outdated memory: `glee memory ops --action delete --by id --value <id>`
 2. Add the updated information: `glee memory ops --action add --category <category> --content "<new content>"`
 
 There's no `update` command - vectors must be regenerated when content changes, so delete + add is the correct workflow.

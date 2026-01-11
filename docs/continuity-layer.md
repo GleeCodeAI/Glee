@@ -138,7 +138,7 @@ Use the existing memory store with richer categories + metadata.
 **Phase 1**
 
 - Auto-session summaries into memory.
-- Decision/preference capture helper (`glee_memory_ops` with `action="add"` templates).
+- Decision/preference capture helper (`glee_memory_add` templates).
 
 **Phase 2**
 

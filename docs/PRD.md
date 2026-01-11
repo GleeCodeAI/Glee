@@ -301,7 +301,9 @@ glee logs agents              # Show agent run history
 | `glee_review` | Run review with primary reviewer |
 | `glee_config_set` | Set a config value (e.g., reviewer.primary) |
 | `glee_config_unset` | Unset a config value (e.g., reviewer.secondary) |
-| `glee_memory_ops` | Add/list/delete memory entries |
+| `glee_memory_add` | Add a memory entry to a category |
+| `glee_memory_list` | List memories, optionally filtered by category |
+| `glee_memory_delete` | Delete memory by ID or category |
 
 ---
 

@@ -141,70 +141,66 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_ops",
-            description="Memory operations (add, list, delete, delete_category, delete_all).",
+            name="glee_memory_add",
+            description="Add a memory entry to a category.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "action": {
+                    "category": {
                         "type": "string",
-                        "enum": [
-                            "add",
-                            "list",
-                            "delete",
-                            "delete_category",
-                            "delete_all",
-                        ],
+                        "description": "Category for the memory (e.g., 'architecture', 'convention', 'decision')",
                     },
-                    "category": {"type": "string"},
-                    "content": {"type": "string"},
-                    "metadata": {"type": "object"},
-                    "limit": {"type": "integer"},
-                    "memory_id": {"type": "string"},
-                    "confirm": {"type": "boolean"},
+                    "content": {
+                        "type": "string",
+                        "description": "The memory content to store",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional metadata for the memory",
+                    },
                 },
-                "required": ["action"],
-                "oneOf": [
-                    {
-                        "properties": {
-                            "action": {"const": "add"},
-                            "category": {"type": "string"},
-                            "content": {"type": "string"},
-                            "metadata": {"type": "object"},
-                        },
-                        "required": ["action", "category", "content"],
+                "required": ["category", "content"],
+            },
+        ),
+        Tool(
+            name="glee_memory_list",
+            description="List memories, optionally filtered by category.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter",
                     },
-                    {
-                        "properties": {
-                            "action": {"const": "list"},
-                            "category": {"type": "string"},
-                            "limit": {"type": "integer"},
-                        },
-                        "required": ["action"],
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default: 50)",
                     },
-                    {
-                        "properties": {
-                            "action": {"const": "delete"},
-                            "memory_id": {"type": "string"},
-                        },
-                        "required": ["action", "memory_id"],
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="glee_memory_delete",
+            description="Delete memory by ID or by category.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "by": {
+                        "type": "string",
+                        "enum": ["id", "category"],
+                        "description": "Delete by 'id' (single memory) or 'category' (all in category)",
                     },
-                    {
-                        "properties": {
-                            "action": {"const": "delete_category"},
-                            "category": {"type": "string"},
-                            "confirm": {"type": "boolean"},
-                        },
-                        "required": ["action", "category", "confirm"],
+                    "value": {
+                        "type": "string",
+                        "description": "The memory ID or category name to delete",
                     },
-                    {
-                        "properties": {
-                            "action": {"const": "delete_all"},
-                            "confirm": {"type": "boolean"},
-                        },
-                        "required": ["action", "confirm"],
+                    "confirm": {
+                        "type": "boolean",
+                        "description": "Must be true when deleting by category",
                     },
-                ],
+                },
+                "required": ["by", "value"],
             },
         ),
         Tool(
@@ -217,52 +213,38 @@ async def list_tools() -> list[Tool]:
                     "current_goal": {"type": "string", "description": "Alias for goal."},
                     "objective": {"type": "string", "description": "Alias for goal."},
                     "constraints": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Key constraints to keep in mind (max 5).",
                     },
                     "key_constraints": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Alias for constraints.",
                     },
                     "decisions": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Recent decisions to remember (max 5).",
                     },
                     "recent_decisions": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Alias for decisions.",
                     },
                     "open_loops": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Unfinished tasks or blockers (max 5).",
                     },
                     "recent_changes": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Notable changes since last session (max 20).",
                     },
                     "changes": {
-                        "anyOf": [
-                            {"type": "array", "items": {"type": "string"}},
-                            {"type": "string"},
-                        ],
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Alias for recent_changes.",
                     },
                     "summary": {
@@ -324,7 +306,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="glee_memory_bootstrap",
-            description="Bootstrap project memory by gathering documentation and codebase structure. Returns README, CLAUDE.md, package config, and directory tree for you to analyze. After calling this, you MUST analyze the returned content and use glee_memory_ops action=add to populate memories for: architecture, conventions, dependencies, and key decisions.",
+            description="Bootstrap project memory by gathering documentation and codebase structure. Returns README, CLAUDE.md, package config, and directory tree for you to analyze. After calling this, you MUST analyze the returned content and use glee_memory_add to populate memories for: architecture, conventions, dependencies, and key decisions.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -385,8 +367,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await _handle_config_set(arguments)
     elif name == "glee_config_unset":
         return await _handle_config_unset(arguments)
-    elif name == "glee_memory_ops":
-        return await _handle_memory_ops(arguments)
+    elif name == "glee_memory_add":
+        return await _handle_memory_add(arguments)
+    elif name == "glee_memory_list":
+        return await _handle_memory_list(arguments)
+    elif name == "glee_memory_delete":
+        return await _handle_memory_delete(arguments)
     elif name == "glee_memory_capture":
         return await _handle_memory_capture(arguments)
     elif name == "glee_memory_search":
@@ -669,8 +655,8 @@ async def _handle_config_unset(arguments: dict[str, Any]) -> list[TextContent]:
     return [TextContent(type="text", text=f"Unknown config key: {key}")]
 
 
-async def _handle_memory_ops(arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle glee_memory_ops tool call."""
+async def _handle_memory_add(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_add tool call."""
     from glee.config import get_project_config
     from glee.memory import Memory
 
@@ -678,91 +664,107 @@ async def _handle_memory_ops(arguments: dict[str, Any]) -> list[TextContent]:
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
-    action: str | None = arguments.get("action")
-    if not action:
-        return [TextContent(type="text", text="Action is required.")]
+    category: str | None = arguments.get("category")
+    content: str | None = arguments.get("content")
+    metadata: dict[str, Any] | None = arguments.get("metadata")
+    if not category or not content:
+        return [TextContent(type="text", text="Both 'category' and 'content' are required.")]
 
     project_path = config.get("project", {}).get("path", ".")
-
     memory = Memory(project_path)
     try:
-        if action == "add":
-            category: str | None = arguments.get("category")
-            content: str | None = arguments.get("content")
-            metadata: dict[str, Any] | None = arguments.get("metadata")
-            if not category or not content:
-                return [TextContent(type="text", text="Both 'category' and 'content' are required.")]
+        memory_id = memory.add(category=category, content=content, metadata=metadata)
+        return [TextContent(type="text", text=f"Added memory {memory_id} to '{category}':\n{content}")]
+    finally:
+        memory.close()
 
-            memory_id = memory.add(category=category, content=content, metadata=metadata)
-            return [TextContent(type="text", text=f"Added memory {memory_id} to '{category}':\n{content}")]
 
-        if action == "list":
-            category: str | None = arguments.get("category")
-            limit_arg = arguments.get("limit", 50)
-            try:
-                limit = int(limit_arg)
-            except (TypeError, ValueError):
-                limit = 50
-            if limit <= 0:
-                limit = 50
+async def _handle_memory_list(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_list tool call."""
+    from glee.config import get_project_config
+    from glee.memory import Memory
 
-            if category:
-                results = memory.get_by_category(category)[:limit]
-                if not results:
-                    return [TextContent(type="text", text=f"No memories in category '{category}'")]
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
-                title = category.replace("-", " ").replace("_", " ").title()
-                lines = [f"{title} ({len(results)} entries):", ""]
-                for r in results:
-                    created = r.get("created_at", "")
-                    if hasattr(created, "strftime"):
-                        created = created.strftime("%Y-%m-%d %H:%M")
-                    lines.append(f"[{r.get('id')}] ({created})")
-                    lines.append(f"  {r.get('content')}")
-                    lines.append("")
-                return [TextContent(type="text", text="\n".join(lines))]
+    category: str | None = arguments.get("category")
+    limit_arg = arguments.get("limit", 50)
+    try:
+        limit = int(limit_arg)
+    except (TypeError, ValueError):
+        limit = 50
+    if limit <= 0:
+        limit = 50
 
-            categories = memory.get_categories()
-            if not categories:
-                return [TextContent(type="text", text="No memories found.")]
+    project_path = config.get("project", {}).get("path", ".")
+    memory = Memory(project_path)
+    try:
+        if category:
+            results = memory.get_by_category(category)[:limit]
+            if not results:
+                return [TextContent(type="text", text=f"No memories in category '{category}'")]
 
-            lines = ["All Memories:", ""]
-            for cat in categories:
-                results = memory.get_by_category(cat)[:limit]
-                title = cat.replace("-", " ").replace("_", " ").title()
-                lines.append(f"### {title} ({len(results)} entries)")
-                for r in results:
-                    lines.append(f"  [{r.get('id')}] {r.get('content')}")
+            title = category.replace("-", " ").replace("_", " ").title()
+            lines = [f"{title} ({len(results)} entries):", ""]
+            for r in results:
+                created = r.get("created_at", "")
+                if hasattr(created, "strftime"):
+                    created = created.strftime("%Y-%m-%d %H:%M")
+                lines.append(f"[{r.get('id')}] ({created})")
+                lines.append(f"  {r.get('content')}")
                 lines.append("")
             return [TextContent(type="text", text="\n".join(lines))]
 
-        if action == "delete":
-            memory_id: str | None = arguments.get("memory_id")
-            if not memory_id:
-                return [TextContent(type="text", text="Memory ID is required.")]
-            deleted = memory.delete(memory_id)
-            if deleted:
-                return [TextContent(type="text", text=f"Deleted memory {memory_id}")]
-            return [TextContent(type="text", text=f"Memory {memory_id} not found")]
+        categories = memory.get_categories()
+        if not categories:
+            return [TextContent(type="text", text="No memories found.")]
 
-        if action == "delete_category":
-            category = arguments.get("category")
+        lines = ["All Memories:", ""]
+        for cat in categories:
+            results = memory.get_by_category(cat)[:limit]
+            title = cat.replace("-", " ").replace("_", " ").title()
+            lines.append(f"### {title} ({len(results)} entries)")
+            for r in results:
+                lines.append(f"  [{r.get('id')}] {r.get('content')}")
+            lines.append("")
+        return [TextContent(type="text", text="\n".join(lines))]
+    finally:
+        memory.close()
+
+
+async def _handle_memory_delete(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_delete tool call."""
+    from glee.config import get_project_config
+    from glee.memory import Memory
+
+    config = get_project_config()
+    if not config:
+        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
+
+    by: str | None = arguments.get("by")
+    value: str | None = arguments.get("value")
+
+    if not by or not value:
+        return [TextContent(type="text", text="Both 'by' and 'value' are required.")]
+
+    if by not in ("id", "category"):
+        return [TextContent(type="text", text="'by' must be 'id' or 'category'.")]
+
+    project_path = config.get("project", {}).get("path", ".")
+    memory = Memory(project_path)
+    try:
+        if by == "id":
+            deleted = memory.delete(value)
+            if deleted:
+                return [TextContent(type="text", text=f"Deleted memory {value}")]
+            return [TextContent(type="text", text=f"Memory {value} not found")]
+        else:  # by == "category"
             confirm = arguments.get("confirm")
-            if not category:
-                return [TextContent(type="text", text="Category is required.")]
             if confirm is not True:
                 return [TextContent(type="text", text="Set 'confirm' to true to delete a category.")]
-            count = memory.clear(category)
-            return [TextContent(type="text", text=f"Deleted {count} memories from '{category}'")]
-
-        if action == "delete_all":
-            confirm = arguments.get("confirm")
-            if confirm is not True:
-                return [TextContent(type="text", text="Set 'confirm' to true to delete all memories.")]
-            count = memory.clear(None)
-            return [TextContent(type="text", text=f"Deleted all {count} memories")]
-
-        return [TextContent(type="text", text=f"Unknown action: {action}")]
+            count = memory.clear(value)
+            return [TextContent(type="text", text=f"Deleted {count} memories from '{value}'")]
     finally:
         memory.close()
 
@@ -852,7 +854,7 @@ async def _handle_memory_overview() -> list[TextContent]:
         memory.close()
 
         if not memory_ctx:
-            return [TextContent(type="text", text="No memories found. Use glee_memory_ops action=add.")]
+            return [TextContent(type="text", text="No memories found. Use glee_memory_add.")]
 
         return [TextContent(type="text", text=memory_ctx)]
     except Exception as e:
@@ -1011,7 +1013,7 @@ async def _handle_memory_bootstrap() -> list[TextContent]:
     lines.append("# Instructions")
     lines.append("=" * 50)
     lines.append("""
-Based on the documentation and structure above, analyze the project and use glee_memory_ops action=add to populate memories. Focus on:
+Based on the documentation and structure above, analyze the project and use glee_memory_add to populate memories. Focus on:
 
 1. **architecture** - Key architectural patterns, module organization, data flow
    - Main entry points and how they connect
@@ -1034,9 +1036,9 @@ Based on the documentation and structure above, analyze the project and use glee
    - Design trade-offs mentioned
 
 Example calls:
-- glee_memory_ops(action="add", category="architecture", content="CLI built with Typer, MCP server with mcp.server")
-- glee_memory_ops(action="add", category="convention", content="Use snake_case for Python, type hints required")
-- glee_memory_ops(action="add", category="dependencies", content="LanceDB for vector search, DuckDB for structured queries")
+- glee_memory_add(category="architecture", content="CLI built with Typer, MCP server with mcp.server")
+- glee_memory_add(category="convention", content="Use snake_case for Python, type hints required")
+- glee_memory_add(category="dependencies", content="LanceDB for vector search, DuckDB for structured queries")
 """)
 
     return [TextContent(type="text", text="\n".join(lines))]

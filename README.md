@@ -45,7 +45,9 @@ After running `glee init`, restart Claude Code. You'll have these MCP tools:
 - `glee_review` - Run code review with primary reviewer
 - `glee_config_set` - Set config value (e.g., reviewer.primary)
 - `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
-- `glee_memory_ops` - Add/list/delete memory entries
+- `glee_memory_add` - Add a memory entry to a category
+- `glee_memory_list` - List memories, optionally filtered by category
+- `glee_memory_delete` - Delete memory by ID or category
 - `glee_memory_capture` - Capture structured session memory (goal, constraints, decisions, open loops, changes)
 - `glee_memory_search` - Semantic search across memories
 - `glee_memory_overview` - Memory overview for context

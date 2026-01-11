@@ -558,20 +558,21 @@ def memory_ops(
         ...,
         "--action",
         "-a",
-        help="Action: add, list, delete, delete_category, delete_all",
+        help="Action: add, list, delete",
     ),
     category: str | None = typer.Option(None, "--category", "-c", help="Memory category"),
     content: str | None = typer.Option(None, "--content", help="Content to remember (add)"),
-    memory_id: str | None = typer.Option(None, "--memory-id", "--id", help="Memory ID (delete)"),
+    by: str | None = typer.Option(None, "--by", help="Delete by: 'id' or 'category'"),
+    value: str | None = typer.Option(None, "--value", help="The ID or category to delete"),
     metadata: str | None = typer.Option(None, "--metadata", help="JSON metadata (add)"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results (list)"),
     confirm: bool = typer.Option(False, "--confirm", help="Confirm destructive actions"),
 ):
-    """Perform memory operations (add, list, delete, delete_category, delete_all)."""
+    """Perform memory operations (add, list, delete)."""
     from glee.memory import Memory
 
     action_key = action.strip().lower().replace("-", "_")
-    allowed = {"add", "list", "delete", "delete_category", "delete_all"}
+    allowed = {"add", "list", "delete"}
     if action_key not in allowed:
         console.print(f"[red]Invalid action '{action}'. Use one of: {', '.join(sorted(allowed))}.[/red]")
         raise typer.Exit(1)
@@ -633,38 +634,26 @@ def memory_ops(
             return
 
         if action_key == "delete":
-            if not memory_id:
-                console.print("[red]--memory-id is required for delete.[/red]")
+            if not by or not value:
+                console.print("[red]Both --by and --value are required for delete.[/red]")
                 raise typer.Exit(1)
 
-            deleted = memory.delete(memory_id)
-            if deleted:
-                console.print(f"[green]Deleted memory {memory_id}[/green]")
+            if by == "id":
+                deleted = memory.delete(value)
+                if deleted:
+                    console.print(f"[green]Deleted memory {value}[/green]")
+                else:
+                    console.print(f"[yellow]Memory {value} not found[/yellow]")
+            elif by == "category":
+                if not confirm:
+                    if not typer.confirm(f"Delete all memories in '{value}'?"):
+                        console.print("[dim]Cancelled[/dim]")
+                        return
+                count = memory.clear(value)
+                console.print(f"[green]Deleted {count} memories from '{value}'[/green]")
             else:
-                console.print(f"[yellow]Memory {memory_id} not found[/yellow]")
-            return
-
-        if action_key == "delete_category":
-            if not category:
-                console.print("[red]--category is required for delete_category.[/red]")
+                console.print("[red]--by must be 'id' or 'category'.[/red]")
                 raise typer.Exit(1)
-            if not confirm:
-                if not typer.confirm(f"Delete all memories in '{category}'?"):
-                    console.print("[dim]Cancelled[/dim]")
-                    return
-
-            count = memory.clear(category)
-            console.print(f"[green]Deleted {count} memories from '{category}'[/green]")
-            return
-
-        if action_key == "delete_all":
-            if not confirm:
-                if not typer.confirm("Delete ALL memories? This cannot be undone."):
-                    console.print("[dim]Cancelled[/dim]")
-                    return
-
-            count = memory.clear(None)
-            console.print(f"[green]Deleted all {count} memories[/green]")
             return
     except typer.Exit:
         raise

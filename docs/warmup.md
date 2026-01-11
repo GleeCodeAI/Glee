@@ -167,7 +167,9 @@ See [coding-agent-hooks.md](./coding-agent-hooks.md) for hook configuration for 
 | `glee_warmup` | Return warmup context (injected at session start) |
 | `glee_summarize_session` | Capture session summary (called at session end) |
 | `glee_memory_capture` | Explicitly capture structured memory |
-| `glee_memory_ops` | Add/list/delete memory entries |
+| `glee_memory_add` | Add a memory entry to a category |
+| `glee_memory_list` | List memories, optionally filtered by category |
+| `glee_memory_delete` | Delete memory by ID or category |
 
 ## CLI Commands
 

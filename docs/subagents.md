@@ -452,7 +452,7 @@ Errors don't stop other tasks. Main agent decides what to do with partial result
 
 ## Memory Integration
 
-Subagent results can optionally be saved to memory by using `glee_memory_ops` after the task completes:
+Subagent results can optionally be saved to memory by using `glee_memory_add` after the task completes:
 
 ```python
 result = glee_task(
@@ -460,8 +460,7 @@ result = glee_task(
     prompt="Find authentication documentation..."
 )
 # Cache the result for future reference
-glee_memory_ops(
-    action="add",
+glee_memory_add(
     category="subagent-results",
     content=result["output"]
 )
