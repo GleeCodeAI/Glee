@@ -6,6 +6,41 @@
 
 Everyone is building agents. Few are building memory. Workflows without memory are just scripts. Workflows *with* memory are learning systems.
 
+## Two Modes: Choose Your Style
+
+Glee supports **both** imperative and adaptive workflows. They coexist.
+
+| Mode | File | When to Use |
+|------|------|-------------|
+| Imperative | [workflows.md](workflows.md) | Predictable, auditable, deterministic |
+| Adaptive | (this doc) | Learning, improvisation, goal-driven |
+
+**Why both?**
+
+- Compliance/audit → need to prove exact steps were followed
+- CI/CD pipelines → predictable, debuggable
+- Onboarding → new users want to see what happens
+- Creative tasks → AI can improvise based on context
+- Complex debugging → situation-dependent approach
+- Long-term optimization → memory compounds over time
+
+```yaml
+# Imperative: I tell you exactly what to do
+type: imperative
+steps:
+  - agent: lint
+  - agent: test
+  - agent: review
+
+# Adaptive: I tell you what I want, you figure it out
+type: adaptive
+goal: "Ensure code quality"
+memory:
+  consult: true
+```
+
+Users pick the right tool for the job. Some workflows are imperative, some are adaptive, some are hybrid.
+
 ```
 ┌─────────────────────────────────────────────────┐
 │              Adaptive Workflows                 │
