@@ -942,6 +942,107 @@ def memory_add(
             memory.close()
 
 
+def _format_relative_time(dt: Any) -> str:
+    """Format datetime as relative time (e.g., '2 hours ago')."""
+    from datetime import datetime
+
+    if dt is None:
+        return "unknown"
+
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return dt
+
+    now = datetime.now()
+    if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+        now = datetime.now(dt.tzinfo)
+
+    diff = now - dt
+    seconds = diff.total_seconds()
+
+    if seconds < 60:
+        return "just now"
+    elif seconds < 3600:
+        mins = int(seconds / 60)
+        return f"{mins} min{'s' if mins != 1 else ''} ago"
+    elif seconds < 86400:
+        hours = int(seconds / 3600)
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    elif seconds < 604800:
+        days = int(seconds / 86400)
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    else:
+        return dt.strftime("%b %d, %Y")
+
+
+def _render_session_summaries(results: list[dict[str, Any]]) -> None:
+    """Render session summaries in a beautiful format."""
+    from rich.markdown import Markdown
+
+    console.print()
+    console.print(Panel(
+        f"[{Theme.MUTED}]Showing {len(results)} session{'s' if len(results) != 1 else ''}[/{Theme.MUTED}]",
+        title=f"[{Theme.HEADER}]🧠 Session Summaries[/{Theme.HEADER}]",
+        border_style=Theme.PRIMARY,
+        padding=(0, 1),
+    ))
+    console.print()
+
+    for i, r in enumerate(results):
+        created_at = r.get("created_at")
+        relative_time = _format_relative_time(created_at)
+
+        # Parse metadata for session_id
+        metadata_raw = r.get("metadata", {})
+        metadata: dict[str, Any] = {}
+        if isinstance(metadata_raw, str):
+            try:
+                parsed = json.loads(metadata_raw)
+                if isinstance(parsed, dict):
+                    metadata = cast(dict[str, Any], parsed)
+            except json.JSONDecodeError:
+                pass
+        elif isinstance(metadata_raw, dict):
+            metadata = cast(dict[str, Any], metadata_raw)
+
+        session_id: str = str(metadata.get("session_id", "") or "")
+        if session_id:
+            session_display = f"[{Theme.ACCENT}]{session_id[:12]}[/{Theme.ACCENT}]"
+        else:
+            session_display = f"[{Theme.MUTED}]no session id[/{Theme.MUTED}]"
+
+        # Header line with ID, session, and time
+        header = Text()
+        header.append("● ", style=Theme.PRIMARY)
+        header.append(f"{r.get('id', '?')}", style=f"bold {Theme.PRIMARY}")
+        header.append("  ", style="default")
+        header.append(session_display)
+        header.append("  ", style="default")
+        header.append(f"{relative_time}", style=Theme.MUTED)
+
+        console.print(header)
+
+        # Content with proper wrapping
+        content = r.get("content", "").strip()
+        if content:
+            # Indent the content
+            console.print(Padding(
+                Markdown(content) if content.startswith("-") or content.startswith("#") else Text(content, style="default"),
+                (0, 0, 0, 4)
+            ))
+
+        # Add separator between entries (except last)
+        if i < len(results) - 1:
+            console.print(Padding(
+                Text("─" * 50, style=Theme.MUTED),
+                (1, 0, 1, 2)
+            ))
+
+    console.print()
+
+
 @memory_app.command("list")
 def memory_list(
     category: str | None = typer.Option(None, "--category", "-c", help="Filter by category"),
@@ -963,6 +1064,11 @@ def memory_list(
                 console.print(f"[{Theme.WARNING}]No memories in category '{category}'[/{Theme.WARNING}]")
                 return
 
+            # Special formatting for session_summary
+            if category == "session_summary":
+                _render_session_summaries(results)
+                return
+
             title = category.replace("-", " ").replace("_", " ").title()
             console.print(Panel(
                 f"[{Theme.MUTED}]{len(results)} entries[/{Theme.MUTED}]",
@@ -970,8 +1076,10 @@ def memory_list(
                 border_style=Theme.PRIMARY
             ))
             for r in results:
-                console.print(f"\n[{Theme.PRIMARY}]{r.get('id')}[/{Theme.PRIMARY}] [{Theme.MUTED}]{r.get('created_at')}[/{Theme.MUTED}]")
-                console.print(f"  {r.get('content')}")
+                relative_time = _format_relative_time(r.get('created_at'))
+                console.print(f"\n[{Theme.PRIMARY}]●[/{Theme.PRIMARY}] [{Theme.PRIMARY}]{r.get('id')}[/{Theme.PRIMARY}]  [{Theme.MUTED}]{relative_time}[/{Theme.MUTED}]")
+                console.print(Padding(Text(r.get('content', '')), (0, 0, 0, 4)))
+            console.print()
             return
 
         categories = memory.get_categories()
