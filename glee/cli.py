@@ -1192,23 +1192,202 @@ def memory_search(
 
 
 @memory_app.command("overview")
-def memory_overview():
-    """Show formatted memory overview (for LLM context)."""
+def memory_overview(
+    generate: bool = typer.Option(False, "--generate", "-g", help="Generate/update overview using an AI agent"),
+    agent: str | None = typer.Option(None, "--agent", "-a", help="Agent to use (claude, codex, gemini). Auto-detects if not specified."),
+):
+    """Show or generate project overview memory."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from glee.helpers import parse_time
     from glee.memory import Memory
 
+    project_path = Path(os.getcwd())
+
+    if generate:
+        _generate_overview(project_path, agent)
+        return
+
+    # Read mode: show existing overview
     try:
-        memory = Memory(os.getcwd())
-        overview = memory.get_context()
+        memory = Memory(str(project_path))
+        entries = memory.get_by_category("overview")
         memory.close()
 
-        if not overview:
-            console.print("[yellow]No memories found[/yellow]")
+        if not entries:
+            console.print("[yellow]No overview memory found.[/yellow]")
+            console.print("[dim]Run: glee memory overview --generate[/dim]")
             return
 
-        console.print(overview)
+        entry = entries[0]
+        content = (entry.get("content") or "").strip()
+
+        # Check age
+        created_at = entry.get("created_at")
+        age_info = ""
+        age_days = 0
+        if created_at:
+            created_time = parse_time(created_at)
+            if created_time:
+                now = datetime.now(timezone.utc)
+                if created_time.tzinfo is None:
+                    created_time = created_time.replace(tzinfo=timezone.utc)
+                age_days = (now - created_time).days
+                if age_days == 0:
+                    age_info = "today"
+                elif age_days == 1:
+                    age_info = "1 day ago"
+                else:
+                    age_info = f"{age_days} days ago"
+
+        if age_info:
+            console.print(f"[dim]Last updated: {age_info}[/dim]")
+            if age_days >= 7:
+                console.print("[yellow]Stale - run: glee memory overview --generate[/yellow]")
+            console.print()
+
+        console.print(content)
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+def _generate_overview(project_path: Path, agent_name: str | None = None) -> None:
+    """Generate project overview using an AI agent."""
+    from glee.agents import registry
+    from glee.memory import Memory
+
+    # Find available agent
+    agent_order = ["claude", "codex", "gemini"]
+    if agent_name:
+        agent_order = [agent_name]
+
+    agent = None
+    for name in agent_order:
+        candidate = registry.get(name)
+        if candidate and candidate.is_available():
+            agent = candidate
+            break
+
+    if not agent:
+        if agent_name:
+            console.print(f"[red]Agent '{agent_name}' not available.[/red]")
+        else:
+            console.print("[red]No AI agent available. Install claude, codex, or gemini CLI.[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[dim]Using {agent.name} to generate overview...[/dim]")
+
+    # Gather project context
+    context_lines: list[str] = []
+
+    # Documentation files
+    doc_files = [
+        "README.md",
+        "CLAUDE.md",
+        "AGENTS.md",
+        "CONTRIBUTING.md",
+        "docs/README.md",
+        "docs/architecture.md",
+    ]
+
+    for doc_file in doc_files:
+        doc_path = project_path / doc_file
+        if doc_path.exists():
+            try:
+                content = doc_path.read_text()
+                if len(content) > 5000:
+                    content = content[:5000] + "\n\n... (truncated)"
+                context_lines.append(f"## {doc_file}\n```\n{content}\n```\n")
+            except Exception:
+                pass
+
+    # Package configuration
+    package_files = [
+        ("pyproject.toml", "toml"),
+        ("package.json", "json"),
+        ("Cargo.toml", "toml"),
+        ("go.mod", "go"),
+    ]
+
+    for pkg_file, lang in package_files:
+        pkg_path = project_path / pkg_file
+        if pkg_path.exists():
+            try:
+                content = pkg_path.read_text()
+                if len(content) > 3000:
+                    content = content[:3000] + "\n\n... (truncated)"
+                context_lines.append(f"## {pkg_file}\n```{lang}\n{content}\n```\n")
+            except Exception:
+                pass
+
+    # Directory structure
+    def get_tree(path: Path, prefix: str = "", depth: int = 0) -> list[str]:
+        if depth > 3:  # Limit depth for CLI
+            return []
+        tree_lines: list[str] = []
+        try:
+            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+            items = [i for i in items if not i.name.startswith(".") and i.name not in (
+                "node_modules", "__pycache__", ".git", "venv", ".venv", "dist", "build",
+                "target", ".pytest_cache", ".mypy_cache"
+            )]
+            for i, item in enumerate(items[:20]):
+                is_last = i == len(items) - 1 or i == 19
+                connector = "└── " if is_last else "├── "
+                tree_lines.append(f"{prefix}{connector}{item.name}{'/' if item.is_dir() else ''}")
+                if item.is_dir():
+                    extension = "    " if is_last else "│   "
+                    tree_lines.extend(get_tree(item, prefix + extension, depth + 1))
+        except PermissionError:
+            pass
+        return tree_lines
+
+    tree = get_tree(project_path)
+    context_lines.append(f"## Directory Structure\n```\n" + "\n".join(tree) + "\n```\n")
+
+    # Build prompt
+    prompt = f"""Analyze this project and create a comprehensive overview summary.
+
+# Project Context
+{"".join(context_lines)}
+
+# Task
+Create a project overview covering:
+- **Architecture**: Key patterns, module organization, data flow, entry points
+- **Conventions**: Coding standards, naming patterns, file organization
+- **Dependencies**: Key libraries and their purposes
+- **Decisions**: Notable technical choices and trade-offs
+
+Output ONLY the overview content in markdown format, starting with "# Project Overview".
+Do not include any other text, explanations, or tool calls - just the overview itself.
+"""
+
+    # Run agent
+    console.print(f"[dim]Analyzing project...[/dim]")
+    result = agent.run(prompt)
+
+    if not result.success:
+        console.print(f"[red]Agent failed: {result.error}[/red]")
+        raise typer.Exit(1)
+
+    overview_content = result.output.strip()
+
+    # Basic validation
+    if not overview_content or len(overview_content) < 100:
+        console.print("[red]Agent returned empty or too short response.[/red]")
+        raise typer.Exit(1)
+
+    # Clear existing and save new
+    memory = Memory(str(project_path))
+    memory.clear("overview")
+    memory.add(category="overview", content=overview_content)
+    memory.close()
+
+    console.print(f"[green]Overview generated and saved.[/green]")
+    console.print()
+    console.print(overview_content)
 
 
 @memory_app.command("stats")

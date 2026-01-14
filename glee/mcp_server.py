@@ -189,25 +189,21 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="glee_memory_overview",
-            description="Get a formatted overview of all project memories. Returns architecture decisions, conventions, reviews, and other memories organized by category. Call this at session start to understand project context.",
+            description="Get or generate the project overview memory. Without generate=true, returns the existing overview. With generate=true, gathers project docs (README, CLAUDE.md, etc.) and structure for you to analyze and store as a comprehensive summary.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "generate": {
+                        "type": "boolean",
+                        "description": "If true, gathers project docs and structure for you to create/update the overview. Clears existing overview first.",
+                    },
+                },
                 "required": [],
             },
         ),
         Tool(
             name="glee_memory_stats",
             description="Get memory statistics: total count, count by category, oldest and newest entries.",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        Tool(
-            name="glee_memory_bootstrap",
-            description="Bootstrap project memory by gathering documentation and codebase structure. Returns README, CLAUDE.md, package config, and directory tree for you to analyze. After calling this, you MUST analyze the returned content and use glee_memory_add to populate memories for: architecture, conventions, dependencies, and key decisions.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -268,11 +264,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     elif name == "glee_memory_search":
         return await _handle_memory_search(arguments)
     elif name == "glee_memory_overview":
-        return await _handle_memory_overview()
+        return await _handle_memory_overview(arguments)
     elif name == "glee_memory_stats":
         return await _handle_memory_stats()
-    elif name == "glee_memory_bootstrap":
-        return await _handle_memory_bootstrap()
     elif name == "glee_task":
         return await _handle_task(arguments)
     else:
@@ -649,25 +643,196 @@ async def _handle_memory_search(arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error searching memory: {e}")]
 
 
-async def _handle_memory_overview() -> list[TextContent]:
-    """Handle glee_memory_overview tool call."""
+async def _handle_memory_overview(arguments: dict[str, Any]) -> list[TextContent]:
+    """Handle glee_memory_overview tool call - read or generate project overview."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
     from glee.config import get_project_config
+    from glee.helpers import parse_time
     from glee.memory import Memory
 
     config = get_project_config()
     if not config:
         return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
 
+    project_path = Path(config.get("project", {}).get("path", "."))
+    generate = arguments.get("generate", False)
+
+    # Generate mode: gather docs and structure for Claude to analyze
+    if generate:
+        lines: list[str] = []
+
+        # Clear existing overview
+        try:
+            memory = Memory(str(project_path))
+            count = memory.clear("overview")
+            memory.close()
+            if count > 0:
+                lines.append(f"Cleared {count} existing overview memories.")
+                lines.append("")
+        except Exception as e:
+            lines.append(f"Warning: Could not clear overview memories: {e}")
+            lines.append("")
+
+        # Documentation files to look for
+        doc_files = [
+            "README.md",
+            "CLAUDE.md",
+            "AGENTS.md",
+            "CONTRIBUTING.md",
+            "docs/README.md",
+            "docs/architecture.md",
+        ]
+
+        lines.append("# Project Documentation")
+        lines.append("=" * 50)
+        lines.append("")
+
+        for doc_file in doc_files:
+            doc_path = project_path / doc_file
+            if doc_path.exists():
+                try:
+                    content = doc_path.read_text()
+                    if len(content) > 5000:
+                        content = content[:5000] + "\n\n... (truncated)"
+                    lines.append(f"## {doc_file}")
+                    lines.append("```")
+                    lines.append(content)
+                    lines.append("```")
+                    lines.append("")
+                except Exception:
+                    pass
+
+        # Package configuration
+        lines.append("# Package Configuration")
+        lines.append("=" * 50)
+        lines.append("")
+
+        package_files = [
+            ("pyproject.toml", "toml"),
+            ("package.json", "json"),
+            ("Cargo.toml", "toml"),
+            ("go.mod", "go"),
+        ]
+
+        for pkg_file, lang in package_files:
+            pkg_path = project_path / pkg_file
+            if pkg_path.exists():
+                try:
+                    content = pkg_path.read_text()
+                    if len(content) > 3000:
+                        content = content[:3000] + "\n\n... (truncated)"
+                    lines.append(f"## {pkg_file}")
+                    lines.append(f"```{lang}")
+                    lines.append(content)
+                    lines.append("```")
+                    lines.append("")
+                except Exception:
+                    pass
+
+        # Directory structure (full tree)
+        lines.append("# Directory Structure")
+        lines.append("=" * 50)
+        lines.append("```")
+
+        def get_tree(path: Path, prefix: str = "", current_depth: int = 0) -> list[str]:
+            tree_lines: list[str] = []
+            try:
+                items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+                items = [i for i in items if not i.name.startswith(".") and i.name not in (
+                    "node_modules", "__pycache__", ".git", "venv", ".venv", "dist", "build",
+                    "target", ".pytest_cache", ".mypy_cache", "*.egg-info"
+                )]
+
+                for i, item in enumerate(items[:30]):
+                    is_last = i == len(items) - 1 or i == 29
+                    connector = "└── " if is_last else "├── "
+                    tree_lines.append(f"{prefix}{connector}{item.name}{'/' if item.is_dir() else ''}")
+
+                    if item.is_dir():
+                        extension = "    " if is_last else "│   "
+                        tree_lines.extend(get_tree(item, prefix + extension, current_depth + 1))
+            except PermissionError:
+                pass
+            return tree_lines
+
+        tree = get_tree(project_path)
+        lines.extend(tree)
+        lines.append("```")
+        lines.append("")
+
+        # Instructions for Claude
+        lines.append("# Instructions")
+        lines.append("=" * 50)
+        lines.append("""
+Based on the documentation and structure above, analyze the project and create ONE comprehensive summary.
+
+Call glee_memory_add with:
+- category: "overview"
+- content: A comprehensive project summary covering:
+  - **Architecture**: Key patterns, module organization, data flow, entry points
+  - **Conventions**: Coding standards, naming patterns, file organization
+  - **Dependencies**: Key libraries and their purposes
+  - **Decisions**: Notable technical choices and trade-offs
+
+IMPORTANT:
+- Use category="overview" (not architecture, convention, etc.)
+- Write ONE comprehensive entry, not multiple scattered entries
+- This allows atomic refresh when the project evolves
+
+Example:
+glee_memory_add(category="overview", content=\"\"\"
+# Project Overview
+[Project name] is a [description].
+
+## Architecture
+- Entry point: src/main.py
+- CLI built with Typer
+- Data stored in SQLite + LanceDB
+
+## Conventions
+- snake_case for Python
+- Type hints required
+- Tests in tests/ directory
+
+## Key Dependencies
+- typer: CLI framework
+- lancedb: Vector storage
+
+## Technical Decisions
+- Using LanceDB for semantic search
+- MCP server for Claude Code integration
+\"\"\")
+""")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    # Read mode: return existing overview
     try:
-        project_path = config.get("project", {}).get("path", ".")
-        memory = Memory(project_path)
-        memory_ctx = memory.get_context()
+        memory = Memory(str(project_path))
+        entries = memory.get_by_category("overview")
         memory.close()
 
-        if not memory_ctx:
-            return [TextContent(type="text", text="No memories found. Use glee_memory_add.")]
+        if not entries:
+            return [TextContent(type="text", text="No overview memory found. Run glee_memory_overview(generate=true) to create one.")]
 
-        return [TextContent(type="text", text=memory_ctx)]
+        entry = entries[0]
+        content = (entry.get("content") or "").strip()
+
+        # Check staleness
+        created_at = entry.get("created_at")
+        stale_warning = ""
+        if created_at:
+            created_time = parse_time(created_at)
+            if created_time:
+                now = datetime.now(timezone.utc)
+                if created_time.tzinfo is None:
+                    created_time = created_time.replace(tzinfo=timezone.utc)
+                age_days = (now - created_time).days
+                if age_days >= 7:
+                    stale_warning = f"\n\n**Warning: Overview memory is {age_days} days old. Run glee_memory_overview(generate=true) to update it.**"
+
+        return [TextContent(type="text", text=f"{content}{stale_warning}")]
     except Exception as e:
         return [TextContent(type="text", text=f"Error getting memory overview: {e}")]
 
@@ -711,148 +876,6 @@ async def _handle_memory_stats() -> list[TextContent]:
         return [TextContent(type="text", text="\n".join(lines))]
     except Exception as e:
         return [TextContent(type="text", text=f"Error getting stats: {e}")]
-
-
-async def _handle_memory_bootstrap() -> list[TextContent]:
-    """Handle glee_memory_bootstrap tool call - gather project docs and structure."""
-    from pathlib import Path
-
-    from glee.config import get_project_config
-
-    config = get_project_config()
-    if not config:
-        return [TextContent(type="text", text="Project not initialized. Run 'glee init' first.")]
-
-    project_path = Path(config.get("project", {}).get("path", "."))
-    lines: list[str] = []
-
-    # Documentation files to look for
-    doc_files = [
-        "README.md",
-        "CLAUDE.md",
-        "AGENTS.md",
-        "CONTRIBUTING.md",
-        "docs/README.md",
-        "docs/architecture.md",
-    ]
-
-    lines.append("# Project Documentation")
-    lines.append("=" * 50)
-    lines.append("")
-
-    for doc_file in doc_files:
-        doc_path = project_path / doc_file
-        if doc_path.exists():
-            try:
-                content = doc_path.read_text()
-                # Truncate very long files
-                if len(content) > 5000:
-                    content = content[:5000] + "\n\n... (truncated)"
-                lines.append(f"## {doc_file}")
-                lines.append("```")
-                lines.append(content)
-                lines.append("```")
-                lines.append("")
-            except Exception:
-                pass
-
-    # Package configuration
-    lines.append("# Package Configuration")
-    lines.append("=" * 50)
-    lines.append("")
-
-    package_files = [
-        ("pyproject.toml", "toml"),
-        ("package.json", "json"),
-        ("Cargo.toml", "toml"),
-        ("go.mod", "go"),
-    ]
-
-    for pkg_file, lang in package_files:
-        pkg_path = project_path / pkg_file
-        if pkg_path.exists():
-            try:
-                content = pkg_path.read_text()
-                if len(content) > 3000:
-                    content = content[:3000] + "\n\n... (truncated)"
-                lines.append(f"## {pkg_file}")
-                lines.append(f"```{lang}")
-                lines.append(content)
-                lines.append("```")
-                lines.append("")
-            except Exception:
-                pass
-
-    # Directory structure (top 2 levels)
-    lines.append("# Directory Structure")
-    lines.append("=" * 50)
-    lines.append("```")
-
-    def get_tree(path: Path, prefix: str = "", max_depth: int = 2, current_depth: int = 0) -> list[str]:
-        if current_depth >= max_depth:
-            return []
-
-        tree_lines: list[str] = []
-        try:
-            items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-            # Filter out hidden and common noise
-            items = [i for i in items if not i.name.startswith(".") and i.name not in (
-                "node_modules", "__pycache__", ".git", "venv", ".venv", "dist", "build",
-                "target", ".pytest_cache", ".mypy_cache", "*.egg-info"
-            )]
-
-            for i, item in enumerate(items[:30]):  # Limit items per level
-                is_last = i == len(items) - 1 or i == 29
-                connector = "└── " if is_last else "├── "
-                tree_lines.append(f"{prefix}{connector}{item.name}{'/' if item.is_dir() else ''}")
-
-                if item.is_dir():
-                    extension = "    " if is_last else "│   "
-                    tree_lines.extend(get_tree(item, prefix + extension, max_depth, current_depth + 1))
-
-        except PermissionError:
-            pass
-
-        return tree_lines
-
-    tree = get_tree(project_path)
-    lines.extend(tree)
-    lines.append("```")
-    lines.append("")
-
-    # Instructions for Claude
-    lines.append("# Instructions")
-    lines.append("=" * 50)
-    lines.append("""
-Based on the documentation and structure above, analyze the project and use glee_memory_add to populate memories. Focus on:
-
-1. **architecture** - Key architectural patterns, module organization, data flow
-   - Main entry points and how they connect
-   - Core abstractions and their relationships
-   - Data storage and external integrations
-
-2. **convention** - Coding standards and patterns used
-   - Naming conventions (files, functions, variables)
-   - Code organization patterns
-   - Testing conventions
-   - Import/dependency patterns
-
-3. **dependencies** - Key dependencies and why they're used
-   - Core frameworks (web, CLI, etc.)
-   - Database/storage libraries
-   - Testing frameworks
-
-4. **decision** - Any documented technical decisions
-   - Technology choices and rationale
-   - Design trade-offs mentioned
-
-Example calls:
-- glee_memory_add(category="architecture", content="CLI built with Typer, MCP server with mcp.server")
-- glee_memory_add(category="convention", content="Use snake_case for Python, type hints required")
-- glee_memory_add(category="dependencies", content="LanceDB for vector search, DuckDB for structured queries")
-""")
-
-    return [TextContent(type="text", text="\n".join(lines))]
 
 
 async def _handle_task(arguments: dict[str, Any]) -> list[TextContent]:

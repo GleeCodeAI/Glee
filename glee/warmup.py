@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from glee.helpers import git_diff_since, git_status_changes, parse_metadata, parse_time
 from glee.memory import Memory
 from glee.agent_session import load_all_sessions
+
+# Days after which overview memory is considered stale
+BOOTSTRAP_STALE_DAYS = 7
 
 
 def build_warmup_text(project_path: str | Path) -> str | None:
@@ -23,6 +27,7 @@ def build_warmup_text(project_path: str | Path) -> str | None:
         "open_loop",
         "recent_change",
         "session_summary",
+        "overview",
     }
 
     sessions = load_all_sessions(project_path)
@@ -40,6 +45,27 @@ def build_warmup_text(project_path: str | Path) -> str | None:
 
     memory = Memory(str(project_path))
     try:
+        # Bootstrap context (project overview)
+        overview_entries = memory.get_by_category("overview")
+        if overview_entries:
+            entry = overview_entries[0]  # Should be a single comprehensive entry
+            content = (entry.get("content") or "").strip()
+            if content:
+                # Check staleness
+                created_at = entry.get("created_at")
+                stale_warning = ""
+                if created_at:
+                    created_time = parse_time(created_at)
+                    if created_time:
+                        now = datetime.now(timezone.utc)
+                        if created_time.tzinfo is None:
+                            created_time = created_time.replace(tzinfo=timezone.utc)
+                        age_days = (now - created_time).days
+                        if age_days >= BOOTSTRAP_STALE_DAYS:
+                            stale_warning = f"\n\n**Warning: Overview memory is {age_days} days old. Run `glee_memory_overview(generate=true)` to update it.**"
+
+                sections.append(f"## Project Context\n{content}{stale_warning}")
+
         goal_entries = memory.get_by_category("goal")
         constraint_entries = memory.get_by_category("constraint")
         decision_entries = memory.get_by_category("decision")
