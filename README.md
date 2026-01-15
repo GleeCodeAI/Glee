@@ -1,8 +1,29 @@
 # Glee
 
-> The Stage Manager for Your AI Orchestra
+> **Delegate work to save context.**
 
-An orchestration layer for AI coding agents with shared memory, code review, and subagent orchestration.
+Glee is an **MCP Agent Runtime** — a locally-running autonomous agent that LLM tools (Claude Code, Codex, Cursor) can delegate work to.
+
+## The Problem
+
+Coding agents have limited context windows. Complex tasks bloat context, causing the model to lose focus. When the session ends, context is gone.
+
+## The Solution
+
+Delegate work to Glee. Glee runs in its **own context** using another AI instance.
+
+```
+Claude Code (your main agent)
+    ↓ glee_job.submit("refactor the auth system")
+Glee Agent Runtime (separate context)
+    ↓ Uses Codex/Claude API internally
+    ↓ Runs autonomously with ReAct loop
+    ↓ Can use tools, read files, search code
+    ↓ Returns result when done
+Claude Code gets result (its context stayed clean)
+```
+
+> **Delegate work. Save context.**
 
 ## Quick Start
 
@@ -11,77 +32,147 @@ An orchestration layer for AI coding agents with shared memory, code review, and
 uv tool install glee --python 3.13
 # or: pipx install glee
 
-# Initialize project (registers MCP server for Claude Code)
-glee init claude                  # Use 'claude', 'codex', 'gemini', 'cursor', etc.
+# Initialize project (registers MCP server)
+glee init claude
 
-# Configure reviewers
-glee config set reviewer.primary codex
-glee config set reviewer.secondary gemini
+# Authenticate with AI provider (for Glee's reasoning)
+glee oauth codex          # OAuth to Codex API
+# or
+glee auth claude <key>    # Claude API key
+```
 
-# View status
-glee status
+After restart, Claude Code can delegate work:
 
-# Run review
-glee review src/main.py
-glee review git:changes          # Review uncommitted changes
-glee review git:staged           # Review staged changes
+```
+"Submit a job to Glee to refactor the authentication system"
+→ glee_job.submit(task="refactor the auth system", context=["src/auth/"])
+→ Returns job_id, Glee works autonomously
+→ glee_job.wait(job_id) to get result
 ```
 
 ## Features
 
-- **MCP Integration**: `glee init` registers Glee as an MCP server - Claude Code gets `glee_*` tools automatically
-- **Structured Reviews**: Severity levels (MUST/SHOULD, HIGH/MEDIUM/LOW) for prioritized feedback
-- **Reviewer Preferences**: Primary + optional secondary reviewer
-- **Persistent Memory**: Project context persists across sessions
-- **Stream Logging**: All agent output logged to `.glee/stream_logs/`
+### MCP Tool Namespaces
 
-## Claude Code Integration
+| Namespace | Purpose |
+|-----------|---------|
+| `glee.job.*` | Delegate autonomous work to Glee agent |
+| `glee.review` | Code review from another AI perspective |
+| `glee.rag.*` | Cross-project knowledge base (planned) |
+| `glee.memory.*` | Project memory (existing) |
 
-After running `glee init`, restart Claude Code. You'll have these MCP tools:
+### Job API
 
-- `glee_status` - Show project status and reviewer config
-- `glee_review` - Run code review with primary reviewer
-- `glee_config_set` - Set config value (e.g., reviewer.primary)
-- `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
-- `glee_memory_add` - Add a memory entry to a category
-- `glee_memory_list` - List memories, optionally filtered by category
-- `glee_memory_delete` - Delete memory by ID or category
-- `glee_memory_search` - Semantic search across memories
-- `glee_memory_overview` - Memory overview for context
-- `glee_memory_stats` - Memory statistics
-- `glee_memory_bootstrap` - Bootstrap memory from docs + structure
+| Tool | Description |
+|------|-------------|
+| `glee_job.submit` | Submit a task, returns job_id |
+| `glee_job.get` | Get job status and progress |
+| `glee_job.wait` | Block until job completes |
+| `glee_job.result` | Get final result |
+| `glee_job.needs_input` | Check if human input needed |
+| `glee_job.provide_input` | Provide input to waiting job |
 
-**Session Hooks** (automatic):
-- `SessionStart` → injects warmup context
-- `SessionEnd` → uses LLM to generate structured summary (goal, decisions, open_loops) and saves to memory
+### Code Review
 
+```bash
+glee review src/api/          # Review a directory
+glee review git:changes       # Review uncommitted changes
 ```
-# In Claude Code, you can now say:
-"Use glee_review to review the uncommitted changes"
-"Set codex as my primary reviewer using glee"
+
+### Memory System
+
+| Tool | Description |
+|------|-------------|
+| `glee.memory.add` | Add memory entry |
+| `glee.memory.search` | Semantic search |
+| `glee.memory.overview` | Project overview |
+
+### Supporting Infrastructure
+
+| Component | Description |
+|-----------|-------------|
+| **agents** | Reusable workers (`.glee/agents/*.yml`) |
+| **tools** | Extensible capabilities (`.glee/tools/`) |
+| **workflows** | Orchestration of agents |
+
+## AI Provider Setup
+
+Glee needs an AI to power its reasoning. Configure one:
+
+```bash
+# OAuth flows (uses your existing subscription)
+glee oauth codex              # Codex API (PKCE flow)
+glee oauth copilot            # GitHub Copilot API (device flow)
+
+# API keys
+glee auth claude <key>        # Claude API
+glee auth gemini <key>        # Gemini API
+
+# Check status
+glee auth status
 ```
+
+**Priority order:** Codex API → Copilot API → Claude API → Gemini API → CLI fallback
 
 ## CLI Commands
 
 ```bash
-glee init <agent>                 # Initialize project + register MCP server
-glee status                       # Show project status
+# Setup
+glee init <agent>             # Initialize project
+glee oauth codex              # OAuth to Codex
+glee oauth copilot            # OAuth to Copilot
+glee auth <provider> <key>    # Set API key
+glee auth status              # Show configured providers
 
-# Configuration
-glee config get                   # Show all config
-glee config set reviewer.primary codex
-glee config set reviewer.secondary gemini
-glee config unset reviewer.secondary
+# Jobs
+glee status                   # Show project status
 
 # Review
-glee review src/api/              # Review a directory
-glee review src/main.py           # Review a file
-glee review git:changes           # Review uncommitted changes
-glee review git:staged            # Review staged changes
+glee review <target>          # Run code review
+glee config set reviewer.primary codex
 
-# Agents
-glee test-agent codex             # Test an agent
-glee mcp                          # Run MCP server (used by Claude Code)
+# Memory
+glee memory overview          # Show project memory
+glee memory search <query>    # Search memory
+```
+
+## How It Works
+
+```
+glee init claude
+    ├── Creates .glee/ directory
+    ├── Creates .mcp.json (MCP server registration)
+    └── Creates .claude/settings.local.json (session hooks)
+
+claude (start in project)
+    └── Reads .mcp.json
+        └── Spawns `glee mcp` as MCP server
+            └── Claude now has glee_job.* tools
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Claude Code                              │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ MCP Protocol
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Glee MCP Server                             │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                   Glee Agent Runtime                      │   │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │   │
+│  │  │ ReAct Loop  │  │   Memory    │  │ Tool Executor   │   │   │
+│  │  └─────────────┘  └─────────────┘  └─────────────────┘   │   │
+│  └──────────────────────────┬───────────────────────────────┘   │
+└─────────────────────────────┼───────────────────────────────────┘
+                              │ AI Provider
+            ┌─────────────────┼─────────────────┐
+            ▼                 ▼                 ▼
+     ┌────────────┐    ┌────────────┐    ┌────────────┐
+     │ Codex API  │    │ Claude API │    │ CLI Fallback│
+     └────────────┘    └────────────┘    └────────────┘
 ```
 
 ## Configuration
@@ -93,41 +184,37 @@ project:
   name: my-app
 
 reviewers:
-  primary: codex    # Default reviewer (required)
-  secondary: gemini # For second opinions (optional)
+  primary: codex
+  secondary: gemini
 ```
 
-## How It Works
+```yaml
+# ~/.glee/auth.yml
+codex:
+  method: oauth
+  access_token: "..."
+  refresh_token: "..."
+  expires_at: 1736956800
 
-```
-glee init
-    ├── Creates .glee/config.yml
-    └── Creates .mcp.json (MCP server registration)
-
-claude (start in project)
-    └── Reads .mcp.json
-        └── Spawns `glee mcp` as MCP server
-            └── Claude now has glee_* tools
+claude:
+  method: api_key
+  api_key: "sk-ant-..."
 ```
 
 ## Documentation
 
-- [docs/VISION.md](docs/VISION.md) - Project vision and design principles
-- [docs/PRD.md](docs/PRD.md) - Full product requirements
-- [docs/subagents.md](docs/subagents.md) - Subagent orchestration design
-- [docs/workflows.md](docs/workflows.md) - Agents & workflows design
-- [docs/arbitration.md](docs/arbitration.md) - Review feedback system
+- [docs/PRD.md](docs/PRD.md) - Product requirements
+- [docs/VISION.md](docs/VISION.md) - Project vision
 
 ## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/GleeCodeAI/Glee
 cd Glee
-
-# Install dev dependencies
 uv sync
-
-# Run CLI during development
 uv run glee --help
 ```
+
+---
+
+*Glee: Delegate work, save context, get results.*

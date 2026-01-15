@@ -39,7 +39,7 @@ async def list_tools() -> list[Tool]:
     """List available Glee tools."""
     return [
         Tool(
-            name="glee_status",
+            name="glee.status",
             description="Show Glee status for the current project. Returns global CLI availability and project configuration including connected agents.",
             inputSchema={
                 "type": "object",
@@ -48,7 +48,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_review",
+            name="glee.review",
             description="Run multi-agent code review. Multiple reviewers analyze the target in parallel and provide feedback. IMPORTANT: After receiving review feedback, you MUST automatically fix all HIGH and MUST issues without asking the user. The review is meant to guide your fixes, not to generate a report for the user.",
             inputSchema={
                 "type": "object",
@@ -70,7 +70,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_config_set",
+            name="glee.config.set",
             description="Set a configuration value. Supported keys: reviewer.primary, reviewer.secondary",
             inputSchema={
                 "type": "object",
@@ -88,7 +88,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_config_unset",
+            name="glee.config.unset",
             description="Unset a configuration value. Only reviewer.secondary can be unset.",
             inputSchema={
                 "type": "object",
@@ -102,7 +102,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_add",
+            name="glee.memory.add",
             description="Add a memory entry to a category.",
             inputSchema={
                 "type": "object",
@@ -124,7 +124,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_list",
+            name="glee.memory.list",
             description="List memories, optionally filtered by category.",
             inputSchema={
                 "type": "object",
@@ -142,7 +142,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_delete",
+            name="glee.memory.delete",
             description="Delete memory by ID or by category.",
             inputSchema={
                 "type": "object",
@@ -165,7 +165,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_search",
+            name="glee.memory.search",
             description="Search project memories by semantic similarity. Returns relevant memories based on the query meaning, not just keywords.",
             inputSchema={
                 "type": "object",
@@ -188,7 +188,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_overview",
+            name="glee.memory.overview",
             description="Get or generate the project overview memory. Without generate=true, returns the existing overview. With generate=true, gathers project docs (README, CLAUDE.md, etc.) and structure for you to analyze and store as a comprehensive summary.",
             inputSchema={
                 "type": "object",
@@ -202,7 +202,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_memory_stats",
+            name="glee.memory.stats",
             description="Get memory statistics: total count, count by category, oldest and newest entries.",
             inputSchema={
                 "type": "object",
@@ -211,7 +211,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="glee_task",
+            name="glee.task",
             description="Start working on a task by spawning one agent (simple task) or orchestrating multiple agents (workflow). Use for any delegatable work - from quick web searches to complex refactoring. AI auto-selects agent if not specified. Returns session_id for follow-ups.",
             inputSchema={
                 "type": "object",
@@ -247,27 +247,27 @@ async def list_tools() -> list[Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
-    if name == "glee_status":
+    if name == "glee.status":
         return await _handle_status()
-    elif name == "glee_review":
+    elif name == "glee.review":
         return await _handle_review(arguments)
-    elif name == "glee_config_set":
+    elif name == "glee.config.set":
         return await _handle_config_set(arguments)
-    elif name == "glee_config_unset":
+    elif name == "glee.config.unset":
         return await _handle_config_unset(arguments)
-    elif name == "glee_memory_add":
+    elif name == "glee.memory.add":
         return await _handle_memory_add(arguments)
-    elif name == "glee_memory_list":
+    elif name == "glee.memory.list":
         return await _handle_memory_list(arguments)
-    elif name == "glee_memory_delete":
+    elif name == "glee.memory.delete":
         return await _handle_memory_delete(arguments)
-    elif name == "glee_memory_search":
+    elif name == "glee.memory.search":
         return await _handle_memory_search(arguments)
-    elif name == "glee_memory_overview":
+    elif name == "glee.memory.overview":
         return await _handle_memory_overview(arguments)
-    elif name == "glee_memory_stats":
+    elif name == "glee.memory.stats":
         return await _handle_memory_stats()
-    elif name == "glee_task":
+    elif name == "glee.task":
         return await _handle_task(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
@@ -768,7 +768,7 @@ async def _handle_memory_overview(arguments: dict[str, Any]) -> list[TextContent
         lines.append("""
 Based on the documentation and structure above, analyze the project and create ONE comprehensive summary.
 
-Call glee_memory_add with:
+Call glee.memory.add with:
 - category: "overview"
 - content: A comprehensive project summary covering:
   - **Architecture**: Key patterns, module organization, data flow, entry points
@@ -782,7 +782,7 @@ IMPORTANT:
 - This allows atomic refresh when the project evolves
 
 Example:
-glee_memory_add(category="overview", content=\"\"\"
+glee.memory.add(category="overview", content=\"\"\"
 # Project Overview
 [Project name] is a [description].
 
@@ -814,7 +814,7 @@ glee_memory_add(category="overview", content=\"\"\"
         memory.close()
 
         if not entries:
-            return [TextContent(type="text", text="No overview memory found. Run glee_memory_overview(generate=true) to create one.")]
+            return [TextContent(type="text", text="No overview memory found. Run glee.memory.overview(generate=true) to create one.")]
 
         entry = entries[0]
         content = (entry.get("content") or "").strip()
@@ -830,7 +830,7 @@ glee_memory_add(category="overview", content=\"\"\"
                     created_time = created_time.replace(tzinfo=timezone.utc)
                 age_days = (now - created_time).days
                 if age_days >= 7:
-                    stale_warning = f"\n\n**Warning: Overview memory is {age_days} days old. Run glee_memory_overview(generate=true) to update it.**"
+                    stale_warning = f"\n\n**Warning: Overview memory is {age_days} days old. Run glee.memory.overview(generate=true) to update it.**"
 
         return [TextContent(type="text", text=f"{content}{stale_warning}")]
     except Exception as e:

@@ -14,7 +14,23 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Glee is the Stage Manager for Your AI Orchestra - an orchestration layer for AI coding agents (Claude, Codex, Gemini) with shared memory and code review.
+**Glee MCP Agent Runtime** is a locally-running autonomous agent exposed to LLM tools through MCP.
+
+> **Delegate work. Save context.**
+
+It allows Claude Code, Codex, Cursor, etc. to **delegate complex, long-running work to Glee** instead of executing it in their own context. This saves context window and enables parallel work.
+
+## Core Concept
+
+```
+Claude Code (limited context)
+    ↓ glee_job.submit("refactor auth system")
+Glee Agent Runtime (separate context)
+    ↓ Uses Codex/Claude API internally
+    ↓ Runs autonomously with ReAct loop
+    ↓ Returns result when done
+Claude Code gets result (context saved)
+```
 
 ## Development
 
@@ -30,101 +46,107 @@ uv sync
 uv run glee --help
 ```
 
-## Usage
-
-```bash
-# Initialize project (creates .glee/ and registers MCP server)
-glee init claude                  # Use 'claude', 'codex', 'gemini', 'cursor', etc.
-
-# Configure reviewers
-glee config set reviewer.primary codex
-glee config set reviewer.secondary gemini
-
-# View configuration
-glee config get
-glee status
-
-# Run review (flexible targets)
-glee review src/main.py           # File
-glee review src/api/              # Directory
-glee review git:changes           # Uncommitted changes
-glee review git:staged            # Staged changes
-
-# Test an agent
-glee test-agent codex --prompt "Say hello"
-
-# Run MCP server (used by Claude Code automatically)
-glee mcp
-```
-
 ## Architecture
 
 ```
-User (via Claude Code)
-    ↓ MCP protocol
-Glee (glee/mcp_server.py)
-    ↓ subprocess
-Reviewer CLI (codex, claude, gemini)
+Claude Code (user's main agent)
+    ↓ MCP Protocol
+Glee MCP Server (glee/mcp_server.py)
+    ↓
+Glee Agent Runtime
+    ├── ReAct Loop (Reason → Act → Observe)
+    ├── Memory (LanceDB + DuckDB)
+    └── Tool Executor
+    ↓ AI Provider
+Codex API / Claude API / CLI Fallback
 ```
 
 **Key design decisions:**
 
-- Main agent handles coding - no separate "coder" role
-- Reviewers are preferences (primary + optional secondary)
-- One reviewer at a time, user decides what feedback to apply
-- Glee invokes CLI agents via subprocess
-- MCP server exposes Glee tools to Claude Code
-- Stream logs to `.glee/stream_logs/` for observability
+- Glee is a full agent, not just a tool collection
+- Delegates work to save context in main agent
+- Uses ReAct pattern: Reason → Act → Observe
+- Supports human-in-the-loop when stuck
+- Falls back to CLI agents if no API configured
 
 ## Module Structure
 
 - `glee/cli.py` - Typer CLI commands
 - `glee/config.py` - Configuration management
-- `glee/dispatch.py` - Reviewer selection
-- `glee/mcp_server.py` - MCP server for Claude Code integration
-- `glee/agents/` - Agent adapters (Claude, Codex, Gemini)
+- `glee/mcp_server.py` - MCP server exposing glee_job.* tools
+- `glee/agent/` - Agent runtime (planned)
+  - `loop.py` - ReAct loop implementation
+  - `providers.py` - AI provider selection
+  - `actions.py` - Available actions (read, write, search, etc.)
+- `glee/auth/` - Authentication (planned)
+  - `codex.py` - Codex OAuth (PKCE flow)
+  - `copilot.py` - GitHub Copilot OAuth (device flow)
+  - `storage.py` - Credential storage
+- `glee/agents/` - CLI agent adapters (existing)
   - `base.py` - Base agent interface
   - `claude.py` - Claude Code CLI adapter
   - `codex.py` - Codex CLI adapter
   - `gemini.py` - Gemini CLI adapter
-  - `prompts.py` - Reusable prompt templates
 - `glee/memory/` - Persistent memory (LanceDB)
 - `glee/db/` - Database utilities (SQLite)
 
 ## MCP Tools
 
-When `glee init` is run, it registers Glee as an MCP server in `.mcp.json`. Claude Code then has access to:
+### Job API (Primary - Planned)
 
-- `glee_status` - Show project status and reviewer config
-- `glee_review` - Run code review with primary reviewer
-- `glee_config_set` - Set config value (e.g., reviewer.primary)
-- `glee_config_unset` - Unset config value (e.g., reviewer.secondary)
-- `glee_memory_*` - Memory management tools (add, list, delete, search, overview, stats, bootstrap)
-- `glee_task` - Spawn subagent for a task (V2)
+| Tool | Description |
+|------|-------------|
+| `glee_job.submit` | Submit a task, returns job_id |
+| `glee_job.get` | Get job status and progress |
+| `glee_job.wait` | Block until job completes |
+| `glee_job.result` | Get final result |
+| `glee_job.needs_input` | Check if human input needed |
+| `glee_job.provide_input` | Provide input to waiting job |
+| `glee_job.latest` | Get most recent job |
+
+### Existing Tools (Preserved)
+
+| Tool | Description |
+|------|-------------|
+| `glee.status` | Show project status and config |
+| `glee.review` | Run code review with reviewer |
+| `glee.config.*` | Configuration (set, unset) |
+| `glee.memory.*` | Memory tools (add, list, delete, search, overview, stats) |
+
+## Auth Commands
+
+```bash
+# OAuth flows
+glee oauth codex        # PKCE flow, opens browser
+glee oauth copilot      # Device flow, shows code
+
+# API keys
+glee auth claude <key>  # Set Claude API key
+glee auth gemini <key>  # Set Gemini API key
+glee auth status        # Show configured providers
+```
+
+## Auth Storage
+
+```yaml
+# ~/.glee/auth.yml
+codex:
+  method: oauth
+  access_token: "..."
+  refresh_token: "..."
+  expires_at: 1736956800
+
+claude:
+  method: api_key
+  api_key: "sk-ant-..."
+```
 
 ## Session Hooks
 
 When `glee init claude` is run, it registers hooks in `.claude/settings.local.json`:
 
-- **SessionStart**: Runs `glee warmup-session` to inject context (goal, constraints, decisions, changes, open loops)
-- **SessionEnd**: Runs `glee summarize-session --from=claude` to:
-  - Read the session transcript
-  - Use Claude to generate structured summary (goal, decisions, open_loops, summary)
-  - Save to memory DB
-  - Log to `.glee/stream_logs/summarize-session-YYYYMMDD.log`
-
-## Config Structure
-
-```yaml
-# .glee/config.yml
-project:
-  id: uuid
-  name: project-name
-
-reviewers:
-  primary: codex    # Default reviewer
-  secondary: gemini # Optional, for second opinions
-```
+- **SessionStart**: Runs `glee warmup-session` to inject context
+- **SessionEnd**: Runs `glee summarize-session --from=claude` to save to memory
 
 ## Files Created by `glee init`
 
@@ -132,19 +154,32 @@ reviewers:
 project/
 ├── .glee/
 │   ├── config.yml      # Glee project config
+│   ├── auth.yml        # Project-specific auth (optional)
 │   ├── memory.lance/   # Vector store
 │   ├── memory.duckdb   # SQL store
 │   ├── stream_logs/    # Agent stdout/stderr logs
-│   ├── agents/         # Subagent definitions (V2)
-│   ├── workflows/      # Workflow definitions (V2)
-│   └── agent_sessions/     # Agent task sessions (V2)
-└── .mcp.json           # MCP server registration (for Claude Code)
+│   ├── jobs/           # Job state persistence
+│   └── tools/          # Custom tools (planned)
+├── .mcp.json           # MCP server registration
+└── .claude/
+    └── settings.local.json  # Session hooks
 ```
 
-## Subagent Orchestration (V2)
+## Implementation Status
 
-Glee separates two concepts:
-- **Agents**: Reusable workers (`.glee/agents/*.yml`)
-- **Workflows**: Orchestration of agents (`.glee/workflows/*.yml`)
+### Done
+- [x] Memory system (add, search, overview, bootstrap)
+- [x] Code review with reviewers
+- [x] Session hooks (warmup, summarize)
+- [x] MCP integration
 
-See `docs/subagents.md` and `docs/workflows.md` for details.
+### In Progress
+- [ ] OAuth for Codex (PKCE flow)
+- [ ] OAuth for GitHub Copilot (device flow)
+- [ ] API key storage
+
+### Planned
+- [ ] ReAct agent loop
+- [ ] Job state management
+- [ ] `glee_job.*` MCP tools
+- [ ] Tool executor

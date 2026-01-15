@@ -1,404 +1,310 @@
-# Glee - Stage Manager for Your AI Orchestra
+# PRD — Glee MCP Agent Runtime
 
-> Glee (n.): A glee club is a group of voices singing in harmony — multiple AI agents collaborating to create better code.
+## 1. Product Definition
 
-## Background
+**Glee MCP Agent Runtime** is a locally-running autonomous agent exposed to LLM tools (Claude Code, Codex, Cursor, etc.) through MCP.
 
-Coding agents are everywhere — Claude Code, Codex, Gemini CLI, Cursor, and more. They're powerful, but they all share the same problems:
+It allows LLMs to **delegate complex, long-running, multi-step work to Glee** instead of executing it inside the model's own context.
 
-1. **They work alone** — No peer review, no second opinion
-2. **They have no memory** — Every session starts fresh, context is lost
-3. **They're siloed** — Switching agents means starting over
+> **Delegate work. Save context.**
 
-## The Insight
+## 2. The Problem
 
-The solution isn't another coding agent. It's an **orchestration layer** that coordinates code review and maintains memory.
+Coding agents (Claude Code, Codex, Cursor) have limited context windows. When you ask them to do complex work:
 
-## What is Glee?
+1. **Context bloat** — Long tasks fill up the context window
+2. **Lost focus** — The model loses track of the original goal
+3. **No persistence** — Session ends, context is gone
+4. **Single-threaded** — Can't delegate work to run in parallel
 
-Glee is the **stage manager** for AI coding agents.
+## 3. The Solution
 
-```
-                    ┌─────────────────────────────────┐
-                    │             Glee                │
-                    │  ┌─────────┐ ┌───────────────┐ │
-                    │  │ Memory  │ │ Orchestration │ │
-                    │  └─────────┘ └───────────────┘ │
-                    └──────────────┬──────────────────┘
-                                   │
-        ┌──────────────────────────┼──────────────────────────┐
-        │                          │                          │
-        ▼                          ▼                          ▼
-   ┌─────────┐              ┌─────────────┐             ┌──────────┐
-   │  Main   │              │  Reviewers  │             │  Memory  │
-   │  Agent  │              ├─────────────┤             │  Store   │
-   ├─────────┤              │ Primary:    │             ├──────────┤
-   │ Claude  │              │   Codex     │             │ LanceDB  │
-   │ (user's │              │ Secondary:  │             │ DuckDB   │
-   │  agent) │              │   Gemini    │             └──────────┘
-   └─────────┘              └─────────────┘
-```
-
-**Key principles**:
-- Main agent handles coding - no separate "coder" role
-- Reviewers are preferences (primary + optional secondary)
-- User decides what feedback to apply (HITL)
-- Maximum 2 reviewers per review cycle
-
-## User Experience
-
-### Installation
-
-```bash
-# Global install
-uv tool install glee
-# or
-pipx install glee
-# or
-brew install glee
-```
-
-### Basic Usage
-
-```bash
-# Initialize project
-glee init claude                  # Use 'claude', 'codex', 'gemini', 'cursor', etc.
-
-# Set reviewer preferences
-glee config set reviewer.primary codex
-glee config set reviewer.secondary gemini
-
-# View configuration
-glee config get
-glee status
-
-# Run review
-glee review src/api/          # Review a directory
-glee review git:changes       # Review uncommitted changes
-glee review git:staged        # Review staged changes
-```
-
-### Project Configuration
-
-```yaml
-# .glee/config.yml
-project:
-  id: 550e8400-e29b-41d4-a716-446655440000  # UUID, auto-generated
-  name: my-app
-
-reviewers:
-  primary: codex    # Default reviewer (required)
-  secondary: gemini # For second opinions (optional)
-```
-
-### Review Flow
+Delegate work to Glee. Glee runs in its **own context** using another AI instance.
 
 ```
-User: "Review my code"
-         ↓
-Glee invokes primary reviewer
-         ↓
-Reviewer returns structured feedback
-         ↓
-User decides:
-  a) Apply - implement the feedback
-  b) Discard - ignore the feedback
-  c) Second opinion - get another review
+Claude Code (your main agent)
+    ↓ glee.job.submit("refactor the auth system")
+Glee Agent Runtime (separate context)
+    ↓ Uses Codex/Claude API internally
+    ↓ Runs autonomously with ReAct loop
+    ↓ Can use tools, read files, search code
+    ↓ Returns result when done
+Claude Code gets result (its context stayed clean)
 ```
 
----
+## 4. Core Goals
 
-## Architecture
+| Goal | Description |
+|------|-------------|
+| **Decouple long work from model context** | Main agent stays focused, Glee does the heavy lifting |
+| **Support long-running jobs** | Tasks that take minutes, not seconds |
+| **Enable agentic execution** | ReAct loop: Reason → Act → Observe |
+| **Support human-in-the-loop** | Glee can ask for input when stuck |
 
-### Design Principle
-
-**Glee = Stage Manager**
-
-Glee runs locally, connects via MCP protocol, and invokes CLI agents via subprocess.
+## 5. Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Claude Code                               │
-│                    (user's main agent)                           │
+│                        Claude Code                              │
+│                    (user's main agent)                          │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ MCP Protocol
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                            Glee                                  │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    MCP Server                            │    │
-│  │  Tools: glee_status, glee_review, glee_connect, etc.    │    │
-│  └──────────────────────────┬──────────────────────────────┘    │
+│                     Glee MCP Server                             │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  MCP Tools: glee.job.submit, glee.job.get, glee.job.wait  │ │
+│  └──────────────────────────┬─────────────────────────────────┘ │
 │                             │                                    │
-│  ┌──────────────────────────┴──────────────────────────────┐    │
-│  │                    Core Layer                            │    │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────────────┐ │    │
-│  │  │  Dispatch  │  │  Memory    │  │  Stream Logging    │ │    │
-│  │  └────────────┘  └────────────┘  └────────────────────┘ │    │
-│  └──────────────────────────┬──────────────────────────────┘    │
-│                             │ subprocess                         │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │
-            ┌─────────────────┴─────────────────┐
-            ▼                                   ▼
-     ┌────────────┐                      ┌────────────┐
-     │   Codex    │                      │   Gemini   │
-     │  (primary) │                      │ (secondary)│
-     └────────────┘                      └────────────┘
+│  ┌──────────────────────────┴─────────────────────────────────┐ │
+│  │                   Glee Agent Runtime                        │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │ │
+│  │  │ ReAct Loop  │  │   Memory    │  │   Tool Executor     │ │ │
+│  │  │ (Reason →   │  │ (LanceDB +  │  │ (HTTP, Command,     │ │ │
+│  │  │  Act →      │  │  DuckDB)    │  │  Python)            │ │ │
+│  │  │  Observe)   │  │             │  │                     │ │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────────────┘ │ │
+│  └──────────────────────────┬─────────────────────────────────┘ │
+│                             │                                    │
+└─────────────────────────────┼────────────────────────────────────┘
+                              │ AI Provider (for reasoning)
+            ┌─────────────────┼─────────────────┐
+            ▼                 ▼                 ▼
+     ┌────────────┐    ┌────────────┐    ┌────────────┐
+     │ Codex API  │    │ Claude API │    │ CLI Fallback│
+     │ (OAuth)    │    │ (API Key)  │    │ (codex cli) │
+     └────────────┘    └────────────┘    └────────────┘
 ```
 
-### Memory Layer
+## 6. API Design
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Memory Layer                          │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  Project Memory                                          │
-│  ├── Architecture decisions & rationale                 │
-│  ├── Code conventions & style guide                     │
-│  ├── Tech stack & dependencies                          │
-│  └── Historical context                                  │
-│                                                          │
-│  Review Memory                                           │
-│  ├── Past review feedback                               │
-│  ├── Common issues & patterns                           │
-│  └── Resolution history                                  │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
-```
+All MCP tools live under one namespace: `glee.job.*`
 
-### Config Directory Structure
-
-```
-# Global config (XDG standard)
-~/.config/glee/
-├── config.yml              # Global defaults
-├── projects.yml            # Project registry
-└── credentials.yml         # API keys
-
-# Project config
-<project>/
-├── .glee/                  # gitignore this directory
-│   ├── config.yml          # project.id, reviewers
-│   ├── memory.lance/       # LanceDB - vector search
-│   ├── memory.duckdb       # DuckDB - SQL queries
-│   ├── stream_logs/        # Agent stdout/stderr
-│   └── agent_sessions/     # Agent task sessions
-└── .mcp.json               # MCP server registration
-```
-
----
-
-## Core Features
-
-### 1. Structured Code Review
-
-Get professional code review with severity levels:
-
-```
-[MUST] Fix SQL injection vulnerability in query builder
-[HIGH] Memory leak in connection pool
-[SHOULD] Consider using async/await for I/O operations
-[MEDIUM] Function exceeds 50 lines, consider splitting
-[LOW] Variable 'x' could have more descriptive name
-```
-
-### 2. Reviewer Preferences
-
-Configure which agent reviews your code:
-
-```yaml
-reviewers:
-  primary: codex    # Used by default
-  secondary: gemini # For second opinions
-```
-
-### 3. Persistent Memory
-
-Glee remembers your project:
-
-- Architecture decisions
-- Code conventions
-- Past review feedback
-- Common patterns
-
-### 4. Stream Logging
-
-All agent output logged to `.glee/stream_logs/`:
-
-```bash
-# Watch in real-time
-tail -f .glee/stream_logs/stdout-*.log
-```
-
-### 5. Subagent Orchestration (V2)
-
-Glee becomes the universal subagent orchestrator:
-
-**Two concepts:**
-- **Agents**: Reusable workers defined in `.glee/agents/*.yml`
-- **Workflows**: Orchestration of agents (human or AI defined)
-
-```yaml
-# .glee/agents/security-scanner.yml
-name: security-scanner
-description: Scan code for security vulnerabilities
-agent: codex
-prompt: |
-  You are a security expert. Analyze the given code for:
-  - SQL injection
-  - XSS vulnerabilities
-  - Authentication issues
-```
-
-**Import from other formats:**
-```bash
-glee agents import --from claude  # .claude/agents/*.md → .glee/agents/*.yml
-glee agents import --from gemini  # .gemini/agents/*.toml → .glee/agents/*.yml
-```
-
-See [docs/workflows.md](workflows.md) and [docs/subagents.md](subagents.md) for details.
-
----
-
-## CLI Commands
-
-```bash
-# Core commands
-glee init <agent>             # Initialize project + register MCP server
-glee status                   # Show global status + project status
-glee mcp                      # Run MCP server (used by Claude Code)
-
-# Configuration
-glee config get                          # Show all config
-glee config get reviewer.primary         # Show specific key
-glee config set reviewer.primary codex   # Set primary reviewer
-glee config set reviewer.secondary gemini # Set secondary reviewer
-glee config unset reviewer.secondary     # Clear secondary reviewer
-
-# Review (flexible targets)
-glee review [target]          # Review files, dirs, or git changes
-glee review src/api/          # Review a directory
-glee review git:changes       # Review uncommitted changes
-glee review git:staged        # Review staged changes
-
-# Memory
-glee memory overview                                           # Show project memory
-glee memory add --category <category> --content <content>    # Add to memory
-glee memory search <query>                                     # Search memory
-
-# Logs
-glee logs show                # Show recent logs
-glee logs agents              # Show agent run history
-```
-
-## MCP Tools
+### Required Tools
 
 | Tool | Description |
 |------|-------------|
-| `glee_status` | Show project status and reviewer config |
-| `glee_review` | Run review with primary reviewer |
-| `glee_config_set` | Set a config value (e.g., reviewer.primary) |
-| `glee_config_unset` | Unset a config value (e.g., reviewer.secondary) |
-| `glee_memory_add` | Add a memory entry to a category |
-| `glee_memory_list` | List memories, optionally filtered by category |
-| `glee_memory_delete` | Delete memory by ID or category |
+| `glee.job.submit` | Submit a task, returns job_id |
+| `glee.job.get` | Get job status and progress |
+| `glee.job.wait` | Block until job completes |
+| `glee.job.result` | Get final result of completed job |
+| `glee.job.needs_input` | Check if any job needs human input |
+| `glee.job.provide_input` | Provide input to a waiting job |
+| `glee.job.latest` | Get most recent job |
 
----
+### Optional Tools
 
-## Tech Stack
+| Tool | Description |
+|------|-------------|
+| `glee.job.list` | List all jobs |
+| `glee.job.cancel` | Cancel a running job |
 
-| Component | Choice | Reason |
-|-----------|--------|--------|
-| Language | Python | Ecosystem, tooling |
-| Package Manager | uv | Fast, modern |
-| Types | Pydantic | Validation, serialization |
-| Embedding | fastembed | Local generation, no API |
-| Vector DB | LanceDB | Embedded, vector search |
-| SQL DB | DuckDB | Embedded, SQL queries |
-| CLI | Typer | User-friendly CLI |
+### Example Usage
 
----
+```python
+# Claude Code submits a job
+job_id = glee.job.submit(
+    task="Refactor the authentication system to use JWT tokens",
+    context=["src/auth/", "src/middleware/"]
+)
 
-## Project Structure
+# Check status
+status = glee.job.get(job_id)
+# → {"status": "running", "progress": "Analyzing auth module..."}
 
-```
-glee/
-├── glee/
-│   ├── __init__.py
-│   ├── cli.py                # Typer CLI commands
-│   ├── config.py             # Configuration management
-│   ├── dispatch.py           # Reviewer selection
-│   ├── logging.py            # Logging setup
-│   ├── mcp_server.py         # MCP server for Claude Code
-│   ├── agents/
-│   │   ├── __init__.py       # Agent registry
-│   │   ├── base.py           # Agent interface
-│   │   ├── claude.py         # Claude Code adapter
-│   │   ├── codex.py          # Codex adapter
-│   │   ├── gemini.py         # Gemini adapter
-│   │   └── prompts.py        # Reusable prompt templates
-│   ├── memory/
-│   │   ├── store.py          # Memory abstraction
-│   │   └── embed.py          # Embedding wrapper
-│   └── db/
-│       └── sqlite.py         # SQLite utilities
-├── docs/
-│   ├── VISION.md
-│   ├── PRD.md
-│   ├── agentic.md
-│   ├── arbitration.md
-│   ├── subagents.md
-│   ├── workflows.md
-│   └── stream_log.md
-├── tests/
-└── pyproject.toml
+# Wait for completion
+result = glee.job.wait(job_id)
+# → {"status": "completed", "result": "...", "files_changed": [...]}
+
+# Or check if human input is needed
+if glee.job.needs_input():
+    question = glee.job.get(job_id)["question"]
+    # → "Should I also update the session management? (yes/no)"
+    glee.job.provide_input(job_id, "yes")
 ```
 
+## 7. ReAct Agent Loop
+
+Glee uses the ReAct pattern internally:
+
+```
+while not done:
+    # REASON: What should I do next?
+    thought = llm.think(task, history, context)
+
+    # DECIDE: What action to take?
+    action = llm.decide(thought)
+
+    # ACT: Execute the action
+    if action.type == "tool":
+        result = execute_tool(action.tool, action.params)
+    elif action.type == "ask_human":
+        result = wait_for_human_input(action.question)
+    elif action.type == "finish":
+        return action.result
+
+    # OBSERVE: Record what happened
+    history.append({thought, action, result})
+```
+
+### Available Actions
+
+| Action | Description |
+|--------|-------------|
+| `read_file` | Read a file's contents |
+| `write_file` | Write/edit a file |
+| `search_code` | Search codebase with grep/glob |
+| `run_command` | Execute shell command |
+| `use_tool` | Call a registered tool |
+| `ask_human` | Request human input |
+| `finish` | Complete the task |
+
+## 8. AI Provider Selection
+
+Glee needs an AI to power its reasoning. Priority order:
+
+| Priority | Provider | Auth Method |
+|----------|----------|-------------|
+| 1 | Codex API | OAuth (PKCE flow) |
+| 2 | GitHub Copilot API | OAuth (device flow) |
+| 3 | Claude API | API key |
+| 4 | Gemini API | API key |
+| 5 | CLI Fallback | codex/claude/gemini CLI |
+
+### Auth Storage
+
+```yaml
+# ~/.glee/auth.yml
+codex:
+  method: oauth
+  access_token: "..."
+  refresh_token: "..."
+  expires_at: 1736956800
+
+claude:
+  method: api_key
+  api_key: "sk-ant-..."
+```
+
+### CLI Commands
+
+```bash
+glee oauth codex        # PKCE flow, opens browser
+glee oauth copilot      # Device flow, shows code
+glee auth claude <key>  # Set API key
+glee auth status        # Show configured providers
+```
+
+## 9. Job States
+
+```
+┌─────────┐     ┌─────────┐     ┌───────────┐     ┌───────────┐
+│ pending │ ──▶ │ running │ ──▶ │ completed │     │ cancelled │
+└─────────┘     └────┬────┘     └───────────┘     └───────────┘
+                     │                ▲
+                     ▼                │
+              ┌─────────────┐         │
+              │ needs_input │ ────────┘
+              └─────────────┘
+```
+
+| State | Description |
+|-------|-------------|
+| `pending` | Job submitted, waiting to start |
+| `running` | Job is executing |
+| `needs_input` | Job is waiting for human input |
+| `completed` | Job finished successfully |
+| `failed` | Job encountered an error |
+| `cancelled` | Job was cancelled |
+
+## 10. Existing Features (Preserved)
+
+Glee already has these features which remain available:
+
+### Memory System
+- `glee.memory.add` — Add memory entry
+- `glee.memory.search` — Semantic search
+- `glee.memory.overview` — Project overview
+- Session hooks for warmup/summarization
+
+### Code Review
+- `glee.review` — Run code review with configured reviewer
+- Primary/secondary reviewer preferences
+- Structured feedback with severity levels
+
+### Status & Config
+- `glee.status` — Show project status
+- `glee.config.set/unset` — Configuration management
+
+## 11. Implementation Phases
+
+### Phase 1: Auth & Provider Setup
+- [ ] OAuth for Codex (PKCE flow)
+- [ ] OAuth for GitHub Copilot (device flow)
+- [ ] API key storage for Claude/Gemini
+- [ ] Provider selection logic
+- [ ] CLI commands: `glee oauth`, `glee auth`
+
+### Phase 2: Agent Runtime
+- [ ] ReAct loop implementation
+- [ ] Job state management
+- [ ] Basic actions (read, write, search)
+- [ ] Human-in-the-loop support
+
+### Phase 3: MCP Integration
+- [ ] `glee.job.submit` tool
+- [ ] `glee.job.get/wait/result` tools
+- [ ] `glee.job.needs_input/provide_input` tools
+- [ ] Job persistence across restarts
+
+### Phase 4: Tools Integration
+- [ ] Tool manifest format (`.glee/tools/`)
+- [ ] HTTP, Command, Python tool types
+- [ ] Tool execution in agent loop
+
+## 12. Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Context savings | 50%+ reduction in main agent context usage |
+| Job completion | 80%+ of jobs complete without human intervention |
+| Time to result | Complex tasks complete in < 5 minutes |
+| Human-in-loop | Questions are clear and actionable |
+
+## 13. Full Feature Set
+
+### MCP Tool Namespaces
+
+| Namespace | Purpose | Status |
+|-----------|---------|--------|
+| `glee.job.*` | Delegate autonomous work | Planned |
+| `glee.review` | Code review | Existing |
+| `glee.rag.*` | Cross-project knowledge base | Planned |
+| `glee.memory.*` | Project memory | Existing |
+| `glee.config.*` | Configuration | Existing |
+
+### Supporting Infrastructure
+
+| Component | Purpose | Status |
+|-----------|---------|--------|
+| **agents** | Reusable workers (`.glee/agents/*.yml`) | Partial |
+| **tools** | Extensible capabilities (`.glee/tools/`) | Planned |
+| **workflows** | Orchestration of agents | Planned |
+
+### Future Features
+
+| Feature | Description |
+|---------|-------------|
+| GitHub integration | PR reviews, issue tracking |
+| Team features | Multi-user collaboration |
+| Web dashboard | Visualization, monitoring |
+
+## 14. Non-Goals
+
+- **Not an account manager** — Auth is just for powering the agent
+- **Not a proxy** — Glee doesn't route requests to multiple providers
+- **Not a cost optimizer** — Focus is on capability, not cost savings
+
 ---
 
-## V1 Scope
-
-**Goal**: A working review platform with memory.
-
-### Done
-- [x] `glee init` - Initialize project with MCP registration
-- [x] `glee config set/get/unset` - Configuration management
-- [x] `glee review` - Run code review with primary reviewer
-- [x] `glee status` - Show global + project status
-- [x] `.glee/config.yml` - Simplified project config
-- [x] MCP integration - `glee mcp` server exposes tools
-- [x] LanceDB + DuckDB + fastembed (embedded, no server)
-- [x] Stream logging to `.glee/stream_logs/`
-
-### TODO
-- [ ] `--second-opinion` flag for review
-- [ ] Auto memory injection via hook
-- [ ] Side-by-side feedback comparison
-
-### V2: Subagent Orchestration
-- [ ] `glee_task` MCP tool
-- [ ] `.glee/agents/*.yml` format
-- [ ] `glee agents import` from Claude/Gemini
-- [ ] Session management for stateful conversations
-- [ ] `.glee/workflows/*.yml` format (V2.1)
-
-### Out of Scope (V3+)
-- Advanced RAG (cross-project knowledge base)
-- Team features (multi-user collaboration)
-- GitHub integration
-- Web dashboard
-
----
-
-## Success Metrics
-
-1. **Time to first review**: < 5 minutes from install
-2. **Review quality**: Catches issues that single agent misses
-3. **Memory value**: Context persists across sessions
-4. **User control**: Human always decides what to apply
-
----
-
-*Glee: Stage Manager for Your AI Orchestra.*
+*Glee: Delegate work, save context, get results.*
