@@ -1,6 +1,6 @@
 [project]
 name = "glee"
-version = "0.3.15"
+version = "0.3.16"
 description = "The Conductor for Your AI Orchestra"
 readme = "README.md"
 requires-python = ">=3.11"
