@@ -14,7 +14,7 @@ Delegate work to Glee. Glee runs in its **own context** using another AI instanc
 
 ```
 Claude Code (your main agent)
-    ↓ glee_job.submit("refactor the auth system")
+    ↓ glee.job.submit("refactor the auth system")
 Glee Agent Runtime (separate context)
     ↓ Uses Codex/Claude API internally
     ↓ Runs autonomously with ReAct loop
@@ -45,9 +45,9 @@ After restart, Claude Code can delegate work:
 
 ```
 "Submit a job to Glee to refactor the authentication system"
-→ glee_job.submit(task="refactor the auth system", context=["src/auth/"])
+→ glee.job.submit(task="refactor the auth system", context=["src/auth/"])
 → Returns job_id, Glee works autonomously
-→ glee_job.wait(job_id) to get result
+→ glee.job.wait(job_id) to get result
 ```
 
 ## Features
@@ -65,12 +65,12 @@ After restart, Claude Code can delegate work:
 
 | Tool | Description |
 |------|-------------|
-| `glee_job.submit` | Submit a task, returns job_id |
-| `glee_job.get` | Get job status and progress |
-| `glee_job.wait` | Block until job completes |
-| `glee_job.result` | Get final result |
-| `glee_job.needs_input` | Check if human input needed |
-| `glee_job.provide_input` | Provide input to waiting job |
+| `glee.job.submit` | Submit a task, returns job_id |
+| `glee.job.get` | Get job status and progress |
+| `glee.job.wait` | Block until job completes |
+| `glee.job.result` | Get final result |
+| `glee.job.needs_input` | Check if human input needed |
+| `glee.job.provide_input` | Provide input to waiting job |
 
 ### Code Review
 
@@ -147,7 +147,7 @@ glee init claude
 claude (start in project)
     └── Reads .mcp.json
         └── Spawns `glee mcp` as MCP server
-            └── Claude now has glee_job.* tools
+            └── Claude now has glee.job.* tools
 ```
 
 ## Architecture

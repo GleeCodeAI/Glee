@@ -24,7 +24,7 @@ It allows Claude Code, Codex, Cursor, etc. to **delegate complex, long-running w
 
 ```
 Claude Code (limited context)
-    ↓ glee_job.submit("refactor auth system")
+    ↓ glee.job.submit("refactor auth system")
 Glee Agent Runtime (separate context)
     ↓ Uses Codex/Claude API internally
     ↓ Runs autonomously with ReAct loop
@@ -73,7 +73,7 @@ Codex API / Claude API / CLI Fallback
 
 - `glee/cli.py` - Typer CLI commands
 - `glee/config.py` - Configuration management
-- `glee/mcp_server.py` - MCP server exposing glee_job.* tools
+- `glee/mcp_server.py` - MCP server exposing glee.job.* tools
 - `glee/agent/` - Agent runtime (planned)
   - `loop.py` - ReAct loop implementation
   - `providers.py` - AI provider selection
@@ -96,13 +96,13 @@ Codex API / Claude API / CLI Fallback
 
 | Tool | Description |
 |------|-------------|
-| `glee_job.submit` | Submit a task, returns job_id |
-| `glee_job.get` | Get job status and progress |
-| `glee_job.wait` | Block until job completes |
-| `glee_job.result` | Get final result |
-| `glee_job.needs_input` | Check if human input needed |
-| `glee_job.provide_input` | Provide input to waiting job |
-| `glee_job.latest` | Get most recent job |
+| `glee.job.submit` | Submit a task, returns job_id |
+| `glee.job.get` | Get job status and progress |
+| `glee.job.wait` | Block until job completes |
+| `glee.job.result` | Get final result |
+| `glee.job.needs_input` | Check if human input needed |
+| `glee.job.provide_input` | Provide input to waiting job |
+| `glee.job.latest` | Get most recent job |
 
 ### Existing Tools (Preserved)
 
@@ -181,5 +181,5 @@ project/
 ### Planned
 - [ ] ReAct agent loop
 - [ ] Job state management
-- [ ] `glee_job.*` MCP tools
+- [ ] `glee.job.*` MCP tools
 - [ ] Tool executor
