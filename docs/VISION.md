@@ -1,249 +1,101 @@
 # Glee Vision
 
-> **Note:** This document describes the long-term vision for Glee. For current implementation status, see [PRD.md](PRD.md) and [../README.md](../README.md).
+> **The Essential MCP Toolkit for Developers**
 
 ## The Problem
 
-Coding agents are everywhere — Claude Code, Codex, Gemini CLI, Cursor, Windsurf, and more are shipping weekly. They're powerful. They're fast. But they all share the same fundamental problems:
+MCP is a game-changer for AI coding tools. But the ecosystem is fragmented:
 
-1. **They work alone.** Each agent operates in isolation, with its own biases and blind spots. No peer review. No second opinion.
+- **Server sprawl**: Memory tools in one server, search in another, GitHub in a third...
+- **Configuration hell**: Each server needs separate setup
+- **Quality lottery**: Some servers are maintained, others abandoned
+- **Discovery friction**: Hard to find what exists and what works
 
-2. **They have no memory.** Every session starts fresh. They don't remember your project's conventions, past decisions, or lessons learned. You explain the same context over and over. Worse: some agents (Claude Code) use directory paths as project identifiers — rename a folder and all your history vanishes. Months of context, gone.
+Developers shouldn't manage a fleet of MCP servers. They should code.
 
-3. **They're interchangeable.** Today's best agent is tomorrow's second choice. But switching means losing all context and starting over.
+## The Solution
 
-## The Insight
+One install. Everything works.
 
-The solution isn't to build another coding agent.
-
-The solution is to build **an orchestration layer** that coordinates them all.
-
-## What is Glee?
-
-Glee is the **Stage Manager for Your AI Orchestra**.
-
-Not a replacement. A multiplier.
-
-```
-Without Glee:
-┌─────────────┐
-│   Agent     │ → Works alone, no memory, no checks
-└─────────────┘
-
-With Glee:
-┌─────────────────────────────────────────────────────────────┐
-│                           Glee                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐   │
-│  │MCP Server│  │A2A Server│  │ REST API │  │  Web UI    │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────────┘   │
-│       └─────────────┴─────────────┘                          │
-│                     │                                        │
-│       ┌─────────────┴─────────────┐                         │
-│       │  Orchestrator + Memory    │                         │
-│       └─────────────┬─────────────┘                         │
-│                     │ subprocess                             │
-└─────────────────────┼───────────────────────────────────────┘
-                      │
-    ┌─────────────────┼─────────────────┐
-    │                 │                 │
-    ▼                 ▼                 ▼
-┌─────────┐     ┌───────────┐     ┌──────────┐
-│ Primary │     │ Secondary │     │  Memory  │
-│Reviewer │     │ Reviewer  │     │  Store   │
-├─────────┤     ├───────────┤     ├──────────┤
-│ Codex   │     │  Gemini   │     │ LanceDB  │
-│ (default)│    │ (optional)│     │ DuckDB   │
-└─────────┘     └───────────┘     └──────────┘
-```
-
-**Key Design Decisions**:
-- **Main agent handles coding** - no separate "coder" role
-- **Reviewers are preferences** - primary (default: codex) and secondary (optional)
-- **User decides** - one reviewer at a time, user controls what feedback to apply
-- **Maximum 2 reviewers** - keeps review focused, avoids analysis paralysis
-
-**Protocol In, Subprocess Out**:
-- Claude Code connects via MCP protocol (`glee mcp` server)
-- `glee init` registers MCP server in project's `.mcp.json`
-- Glee invokes CLI agents via subprocess
-- Output logged to `.glee/stream_logs/` for observability
-
-## Four Pillars
-
-### 1. AI-Native Orchestration
-
-**Agents can define other agents.** This is the path to full autonomy.
-
-```
-Human defines initial agent
-    ↓
-Agent spawns specialized agents for subtasks
-    ↓
-Those agents spawn more agents as needed
-    ↓
-Fully autonomous operation
-```
-
-Two simple concepts:
-- **Agents**: Reusable workers (`.glee/agents/*.yml`)
-- **Workflows**: Orchestration of agents (`.glee/workflows/*.yml`)
-
-Both can be created by humans OR AI. This is what makes Glee AI-native.
-
-### 2. Intelligent Review Protocol
-
-Agents make mistakes. Code gets shipped with bugs, security holes, and anti-patterns.
-
-Glee provides structured, professional code review:
-
-- Configurable reviewer preferences (primary + secondary)
-- Severity levels (MUST/SHOULD, HIGH/MEDIUM/LOW)
-- User-controlled feedback application
-- Second opinion on demand
-
-**Not "does this code look okay?" — but systematic quality assurance.**
-
-### 3. Agent Abstraction Layer
-
-Today you use Claude Code. Tomorrow maybe Codex is better for your use case. Next month, a new player emerges.
-
-Glee abstracts the underlying agent:
-
-- Unified interface across all coding agents
-- Switch reviewers without losing context
-- Best tool for each job
-
-**Use any agent as your main coder. Configure any agent as your reviewer.**
-
-### 4. Persistent Memory
-
-This is the biggest gap in today's coding agents.
-
-Glee remembers everything:
-
-- **Project memory**: Architecture decisions, conventions, tech stack choices
-- **Review memory**: Past issues, common mistakes, what worked
-- **Learning**: Gets smarter about your codebase over time
-
-**Storage (Embedded, No Server)**:
-
-```
-# Global config
-~/.config/glee/
-├── config.yml              # Global defaults
-├── projects.yml            # Project registry (ID → path)
-└── credentials.yml         # API keys
-
-# Project config (gitignore .glee/)
-<project>/.glee/
-├── config.yml              # project.id, reviewers config
-├── memory.lance/           # LanceDB - vector search
-├── memory.duckdb           # DuckDB - SQL queries
-├── stream_logs/            # Agent stdout/stderr logs
-└── agent_sessions/         # Agent task sessions
-```
-
-**Tech stack**:
-```
-fastembed (local embedding, no API)
-    ↓
-LanceDB (vector storage + semantic search)
-    ↓
-DuckDB (SQL queries)
-```
-
-**Project ID is stable**: Renaming/moving projects doesn't lose history.
-
-**Auto-injection via hooks**: When you start a new session, Glee automatically injects relevant context.
-
-## The Flywheel
-
-```
-Better Reviews → Fewer Bugs → More Trust → More Usage
-     ↓                                         ↓
-More Memory → Smarter Context → Better Code ←──┘
-```
-
-This is the moat:
-- **AI-native**: Agents define agents, enabling full autonomy
-- **Review quality**: Structured feedback catches issues single agents miss
-- **Memory compounds**: Every review, every decision makes Glee smarter
-
-## Design Principles
-
-### 1. Stage Manager, Not Conductor
-
-Glee coordinates and logs. The main agent (Claude, etc.) does the creative work. Reviewers provide feedback. Humans make decisions.
-
-### 2. Agent Agnostic
-
-No lock-in to any single agent. Glee works with Claude Code, Codex, Gemini CLI, and whatever comes next.
-
-### 3. Local First
-
-Your code stays on your machine. Agents run locally with full capabilities. Memory is local.
-
-### 4. Zero Config Start
-
-`glee init` and you're running. Complexity is opt-in, not required.
-
-### 5. Autonomy with Oversight
-
-AI agents can operate autonomously — defining agents, spawning workflows, making decisions. But humans set the boundaries and can intervene at any point.
-
-## Current State
-
-**Working features:**
-- MCP integration with Claude Code
-- Task delegation via `glee.task` (CLI orchestration)
-- Reviewer preference management (primary + secondary)
-- Structured code review with severity levels (user-controlled feedback)
-- Persistent memory (LanceDB + DuckDB)
-- Authentication: OAuth (Codex, Copilot) + API keys
-- Stream logging for observability
-
-**CLI commands:**
 ```bash
-glee init claude                       # Initialize project
-glee auth                              # Add credentials (interactive)
-glee auth status                       # Show configured providers
-glee config set reviewer.primary codex # Set primary reviewer
-glee status                            # View configuration
-glee review src/                       # Run code review
+uv tool install glee-code --python 3.13
+glee init claude
+# That's it. You're done.
 ```
 
-**What's NOT yet implemented:**
-- ReAct agent loop (currently just CLI orchestration)
-- `glee.job.*` API (using `glee.task` for now)
-- Human-in-the-loop workflow
-- Tool executor (HTTP, Command, Python)
-- Agents defining other agents
+Glee bundles essential developer tools into a single, well-maintained MCP server.
 
-## The Future
+## What Glee Is
 
-### V2: AI-Native Orchestration
-- `glee_task` MCP tool for spawning subagents
-- Agents define other agents (fully autonomous)
-- Workflows: Orchestration of agents (human or AI defined)
-- Import from Claude Code and Gemini CLI formats
-- Session management for stateful conversations
+**A toolkit, not a platform.**
 
-### V3: Advanced Memory
-- Automatic context injection based on task
-- Learn from every review and decision
-- Cross-project knowledge sharing
+```
+Claude Code
+    ↓ MCP Protocol
+Glee MCP Server
+    ├── Memory (persistent project context)
+    ├── Review (second opinion from another AI)
+    ├── Session hooks (auto context management)
+    └── (more tools coming)
+```
 
-### V4: Team & Enterprise
-- Shared memory across team
-- GitHub/GitLab integration
-- Audit logs and compliance
+## Core Principles
+
+### 1. Consolidation Over Fragmentation
+
+One server that does many things well beats ten servers you have to juggle.
+
+### 2. Works Out of the Box
+
+`glee init claude` → restart → done. No config files to edit. No API keys to manage (for basic features).
+
+### 3. Community-Driven
+
+Missing something? Open an issue. We ship fast.
+
+### 4. Quality Over Quantity
+
+Every tool is maintained. Every tool works. We'd rather have 5 great tools than 50 broken ones.
+
+### 5. Local First
+
+Your code stays on your machine. No cloud. No accounts. Just tools.
+
+## Current Tools
+
+### Memory System
+Persistent project memory that survives across sessions:
+- Store insights, decisions, context
+- Semantic search
+- Automatic session summarization
+
+### Code Review
+Get a second opinion:
+- Configurable AI reviewers (Codex, Claude, Gemini)
+- Structured feedback with severity levels
+
+### Session Hooks
+Automatic context management:
+- Inject relevant context at session start
+- Summarize and save at session end
+
+## Roadmap
+
+### Near-term
+- **Agent delegation** — Hand off complex tasks to a background agent
+- **RAG tools** — Cross-project knowledge base
+- **GitHub tools** — PR reviews, issue tracking
+
+### Future
+- **Plugin system** — Let the community build tools
+- **More integrations** — Whatever developers need
 
 ## Why "Glee"?
 
-A glee club is a group of voices singing in harmony. No single voice dominates — each contributes its unique part to create something greater than any could alone.
+Because using good tools should bring you joy.
 
-That's what we're building: a harmonious collaboration between AI agents, each contributing their strengths, coordinated into better code.
+And because we couldn't resist the acronym potential.
 
 ---
 
-_Glee: Stage Manager for Your AI Orchestra._
+*Glee: The Essential MCP Toolkit for Developers*

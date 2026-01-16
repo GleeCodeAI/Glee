@@ -1,143 +1,78 @@
 # Glee
 
-> **Delegate work to save context.**
+**The Essential MCP Toolkit for Developers**
 
-Glee is an **MCP Agent Runtime** — a locally-running autonomous agent that LLM tools (Claude Code, Codex, Cursor) can delegate work to.
+Don't install 10 different servers. Glee is the battery-included MCP toolkit that gives Claude superpowers: persistent memory, AI code review, session hooks — and soon: Git forensics, DB inspection, and background task delegation.
 
-## The Problem
-
-Coding agents have limited context windows. Complex tasks bloat context, causing the model to lose focus. When the session ends, context is gone.
-
-## The Solution
-
-Delegate work to Glee. Glee runs in its **own context** using another AI instance.
-
-```
-Claude Code (your main agent)
-    ↓ glee.job.submit("refactor the auth system")
-Glee Agent Runtime (separate context)
-    ↓ Uses Codex/Claude API internally
-    ↓ Runs autonomously with ReAct loop
-    ↓ Can use tools, read files, search code
-    ↓ Returns result when done
-Claude Code gets result (its context stayed clean)
-```
-
-> **Delegate work. Save context.**
+Missing something? [Open an issue](https://github.com/GleeMCP/Glee/issues). We ship fast.
 
 ## Quick Start
 
 ```bash
 # Install
-uv tool install glee --python 3.13
-# or: pipx install glee
+uv tool install glee-code --python 3.13
+# or: pipx install glee-code
 
-# Initialize project (registers MCP server)
+# Initialize (registers MCP server with Claude Code)
 glee init claude
 
-# Authenticate with AI provider (for Glee's reasoning)
-glee oauth codex          # OAuth to Codex API
-# or
-glee auth claude <key>    # Claude API key
+# Restart Claude Code - done!
 ```
 
-After restart, Claude Code can delegate work:
+## Tools
 
-```
-"Submit a job to Glee to refactor the authentication system"
-→ glee.job.submit(task="refactor the auth system", context=["src/auth/"])
-→ Returns job_id, Glee works autonomously
-→ glee.job.wait(job_id) to get result
-```
+### Memory
 
-## Features
+Persistent project memory that survives across sessions.
 
-### MCP Tool Namespaces
-
-| Namespace | Purpose |
-|-----------|---------|
-| `glee.job.*` | Delegate autonomous work to Glee agent |
-| `glee.review` | Code review from another AI perspective |
-| `glee.rag.*` | Cross-project knowledge base (planned) |
-| `glee.memory.*` | Project memory (existing) |
-
-### Job API
-
-| Tool | Description |
-|------|-------------|
-| `glee.job.submit` | Submit a task, returns job_id |
-| `glee.job.get` | Get job status and progress |
-| `glee.job.wait` | Block until job completes |
-| `glee.job.result` | Get final result |
-| `glee.job.needs_input` | Check if human input needed |
-| `glee.job.provide_input` | Provide input to waiting job |
+| Tool                   | Description                        |
+| ---------------------- | ---------------------------------- |
+| `glee.memory.add`      | Store insights, decisions, context |
+| `glee.memory.search`   | Semantic search across memory      |
+| `glee.memory.overview` | Get project summary                |
 
 ### Code Review
+
+Get a second opinion from another AI.
+
+| Tool          | Description                               |
+| ------------- | ----------------------------------------- |
+| `glee.review` | Review code with configurable AI reviewer |
 
 ```bash
 glee review src/api/          # Review a directory
 glee review git:changes       # Review uncommitted changes
 ```
 
-### Memory System
+### Session Hooks
 
-| Tool | Description |
-|------|-------------|
-| `glee.memory.add` | Add memory entry |
-| `glee.memory.search` | Semantic search |
-| `glee.memory.overview` | Project overview |
+Automatic context management for Claude Code sessions.
 
-### Supporting Infrastructure
+- **Session start**: Injects relevant project context
+- **Session end**: Summarizes and saves to memory
 
-| Component | Description |
-|-----------|-------------|
-| **agents** | Reusable workers (`.glee/agents/*.yml`) |
-| **tools** | Extensible capabilities (`.glee/tools/`) |
-| **workflows** | Orchestration of agents |
+### Status & Config
 
-## AI Provider Setup
-
-Glee needs an AI to power its reasoning. Configure one:
-
-```bash
-# OAuth flows (uses your existing subscription)
-glee oauth codex               # Codex API (PKCE flow)
-glee oauth copilot             # GitHub Copilot API (device flow)
-
-# API keys
-glee auth set claude <key>     # Claude API
-glee auth set gemini <key>     # Gemini API
-
-# Check status
-glee auth status
-
-# Remove credentials
-glee auth logout <provider>
-```
-
-**Priority order:** Codex API → Copilot API → Claude API → Gemini API → CLI fallback
+| Tool                | Description          |
+| ------------------- | -------------------- |
+| `glee.status`       | Show project status  |
+| `glee.config.set`   | Set configuration    |
+| `glee.config.unset` | Remove configuration |
 
 ## CLI Commands
 
 ```bash
 # Setup
-glee init <agent>              # Initialize project
-glee oauth codex               # OAuth to Codex
-glee oauth copilot             # OAuth to Copilot
-glee auth set <provider> <key> # Set API key
-glee auth status               # Show configured providers
-glee auth logout <provider>    # Remove credentials
-
-# Jobs
-glee status                   # Show project status
-
-# Review
-glee review <target>          # Run code review
-glee config set reviewer.primary codex
+glee init claude              # Initialize project for Claude Code
+glee auth status              # Show configured providers
 
 # Memory
 glee memory overview          # Show project memory
 glee memory search <query>    # Search memory
+
+# Review
+glee review <target>          # Run code review
+glee config set reviewer.primary codex
 ```
 
 ## How It Works
@@ -148,35 +83,10 @@ glee init claude
     ├── Creates .mcp.json (MCP server registration)
     └── Creates .claude/settings.local.json (session hooks)
 
-claude (start in project)
+claude (start session)
     └── Reads .mcp.json
         └── Spawns `glee mcp` as MCP server
-            └── Claude now has glee.job.* tools
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Claude Code                              │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ MCP Protocol
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Glee MCP Server                             │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                   Glee Agent Runtime                      │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │   │
-│  │  │ ReAct Loop  │  │   Memory    │  │ Tool Executor   │   │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────────┘   │   │
-│  └──────────────────────────┬───────────────────────────────┘   │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │ AI Provider
-            ┌─────────────────┼─────────────────┐
-            ▼                 ▼                 ▼
-     ┌────────────┐    ┌────────────┐    ┌────────────┐
-     │ Codex API  │    │ Claude API │    │ CLI Fallback│
-     └────────────┘    └────────────┘    └────────────┘
+            └── Claude now has glee.* tools
 ```
 
 ## Configuration
@@ -192,35 +102,30 @@ reviewers:
   secondary: gemini
 ```
 
-```
-# ~/.glee/auth/
-codex-oauth.yml      # OAuth credentials for Codex
-claude-api-key.yml   # API key for Claude
+## Roadmap
 
-# codex-oauth.yml
-access_token: "..."
-refresh_token: "..."
-expires_at: 1736956800
-account_id: "org-xxx"
+We're building more tools. Here's what's coming:
 
-# claude-api-key.yml
-api_key: "sk-ant-..."
-```
+- [ ] **Agent delegation** — Hand off complex tasks to a background agent
+- [ ] **RAG tools** — Cross-project knowledge base
+- [ ] **GitHub tools** — PR reviews, issue tracking
+- [ ] **More integrations** — What do you need?
 
-## Documentation
-
-- [docs/PRD.md](docs/PRD.md) - Product requirements
-- [docs/VISION.md](docs/VISION.md) - Project vision
+[Request a feature →](https://github.com/AgenticHacker/glee-code/issues)
 
 ## Development
 
 ```bash
-git clone https://github.com/GleeCodeAI/Glee
-cd Glee
+git clone https://github.com/AgenticHacker/glee-code
+cd glee-code
 uv sync
 uv run glee --help
 ```
 
+## Why "Glee"?
+
+Because using good tools should bring you joy. And because we couldn't resist the acronym potential.
+
 ---
 
-*Glee: Delegate work, save context, get results.*
+_Glee: The Essential MCP Toolkit for Developers_
