@@ -1,10 +1,10 @@
-"""Auth storage for Glee credentials.
+"""Connection storage for Glee.
 
-Single file storage: ~/.glee/auth.yml
+Single file storage: ~/.config/glee/connections.yml
 
 ```yaml
 - id: a1b2c3d4e5
-  label: my-codex
+  label: codex
   type: oauth
   sdk: openai
   vendor: openai
@@ -14,7 +14,7 @@ Single file storage: ~/.glee/auth.yml
   account_id: "org-abc123"
 
 - id: f6g7h8i9j0
-  label: work-claude
+  label: anthropic
   type: api
   sdk: anthropic
   vendor: anthropic
@@ -59,7 +59,7 @@ VENDOR_URLS: dict[str, str] = {
 }
 
 
-def _generate_id() -> str:
+def generate_id() -> str:
     """Generate a random alphanumeric ID."""
     chars = string.ascii_lowercase + string.digits
     return "".join(secrets.choice(chars) for _ in range(10))
@@ -103,7 +103,7 @@ class OAuthCredential:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OAuthCredential:
         return cls(
-            id=data.get("id", _generate_id()),
+            id=data.get("id", generate_id()),
             label=data.get("label", ""),
             sdk=data.get("sdk", "openai"),
             vendor=data.get("vendor", ""),
@@ -142,7 +142,7 @@ class APICredential:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> APICredential:
         return cls(
-            id=data.get("id", _generate_id()),
+            id=data.get("id", generate_id()),
             label=data.get("label", ""),
             sdk=data.get("sdk", "openai"),
             vendor=data.get("vendor", ""),
@@ -154,108 +154,109 @@ class APICredential:
 # Union type
 Credential = OAuthCredential | APICredential
 
-
-def _get_auth_path() -> Path:
-    """Get path to auth.yml."""
-    return Path.home() / ".glee" / "auth.yml"
+# Storage path
+CONNECTIONS_PATH = Path.home() / ".config" / "glee" / "connections.yml"
 
 
-def _read_auth() -> list[dict[str, Any]]:
-    """Read all credentials from auth.yml."""
-    path = _get_auth_path()
-    if not path.exists():
-        return []
-    try:
-        with open(path) as f:
-            data = yaml.safe_load(f)
-            return data if isinstance(data, list) else []  # type: ignore[return-value]
-    except Exception:
-        return []
+class ConnectionStorage:
+    """Storage for Glee connections (~/.config/glee/connections.yml)."""
 
+    path: Path = CONNECTIONS_PATH
 
-def _write_auth(data: list[dict[str, Any]]) -> None:
-    """Write credentials to auth.yml."""
-    path = _get_auth_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    os.chmod(path, 0o600)
-
-
-def _parse_credential(data: dict[str, Any]) -> Credential | None:
-    """Parse a credential dict into the appropriate type."""
-    cred_type = data.get("type")
-    if cred_type == "oauth":
-        return OAuthCredential.from_dict(data)
-    elif cred_type == "api":
-        return APICredential.from_dict(data)
-    return None
-
-
-def all() -> list[Credential]:
-    """Get all credentials."""
-    data = _read_auth()
-    result: list[Credential] = []
-    for entry in data:
-        cred = _parse_credential(entry)
-        if cred:
-            result.append(cred)
-    return result
-
-
-def get(id: str) -> Credential | None:
-    """Get credential by ID."""
-    for cred in all():
-        if cred.id == id:
-            return cred
-    return None
-
-
-def find(vendor: str, type: Literal["oauth", "api"] | None = None) -> list[Credential]:
-    """Find credentials by vendor and optionally type."""
-    result: list[Credential] = []
-    for cred in all():
-        if cred.vendor == vendor:
-            if type is None or cred.type == type:
+    @classmethod
+    def all(cls) -> list[Credential]:
+        """Get all connections."""
+        result: list[Credential] = []
+        for entry in cls.read():
+            cred = cls.parse(entry)
+            if cred:
                 result.append(cred)
-    return result
+        return result
 
+    @classmethod
+    def get(cls, id: str) -> Credential | None:
+        """Get connection by ID."""
+        for cred in cls.all():
+            if cred.id == id:
+                return cred
+        return None
 
-def find_one(vendor: str, type: Literal["oauth", "api"] | None = None) -> Credential | None:
-    """Find first credential matching vendor and optionally type."""
-    matches = find(vendor, type)
-    return matches[0] if matches else None
+    @classmethod
+    def find(cls, vendor: str, type: Literal["oauth", "api"] | None = None) -> list[Credential]:
+        """Find connections by vendor and optionally type."""
+        result: list[Credential] = []
+        for cred in cls.all():
+            if cred.vendor == vendor:
+                if type is None or cred.type == type:
+                    result.append(cred)
+        return result
 
+    @classmethod
+    def find_one(cls, vendor: str, type: Literal["oauth", "api"] | None = None) -> Credential | None:
+        """Find first connection matching vendor and optionally type."""
+        matches = cls.find(vendor, type)
+        return matches[0] if matches else None
 
-def add(credential: Credential) -> Credential:
-    """Add a new credential. Generates ID if not set."""
-    if not credential.id:
-        credential.id = _generate_id()
+    @classmethod
+    def add(cls, credential: Credential) -> Credential:
+        """Add a new connection. Generates ID if not set."""
+        if not credential.id:
+            credential.id = generate_id()
 
-    data = _read_auth()
-    data.append(credential.to_dict())
-    _write_auth(data)
-    return credential
+        data = cls.read()
+        data.append(credential.to_dict())
+        cls.write(data)
+        return credential
 
-
-def remove(id: str) -> bool:
-    """Remove credential by ID."""
-    data = _read_auth()
-    original_len = len(data)
-    data = [d for d in data if d.get("id") != id]
-    if len(data) < original_len:
-        _write_auth(data)
-        return True
-    return False
-
-
-def update(id: str, credential: Credential) -> bool:
-    """Update credential by ID."""
-    data = _read_auth()
-    for i, entry in enumerate(data):
-        if entry.get("id") == id:
-            credential.id = id  # Preserve ID
-            data[i] = credential.to_dict()
-            _write_auth(data)
+    @classmethod
+    def remove(cls, id: str) -> bool:
+        """Remove connection by ID."""
+        data = cls.read()
+        original_len = len(data)
+        data = [d for d in data if d.get("id") != id]
+        if len(data) < original_len:
+            cls.write(data)
             return True
-    return False
+        return False
+
+    @classmethod
+    def update(cls, id: str, credential: Credential) -> bool:
+        """Update connection by ID."""
+        data = cls.read()
+        for i, entry in enumerate(data):
+            if entry.get("id") == id:
+                credential.id = id  # Preserve ID
+                data[i] = credential.to_dict()
+                cls.write(data)
+                return True
+        return False
+
+    @classmethod
+    def read(cls) -> list[dict[str, Any]]:
+        """Read all connections from file."""
+        if not cls.path.exists():
+            return []
+        try:
+            with open(cls.path) as f:
+                data = yaml.safe_load(f)
+                return data if isinstance(data, list) else []  # type: ignore[return-value]
+        except Exception:
+            return []
+
+    @classmethod
+    def write(cls, data: list[dict[str, Any]]) -> None:
+        """Write connections to file."""
+        cls.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cls.path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        os.chmod(cls.path, 0o600)
+
+    @staticmethod
+    def parse(data: dict[str, Any]) -> Credential | None:
+        """Parse a dict into the appropriate credential type."""
+        cred_type = data.get("type")
+        if cred_type == "oauth":
+            return OAuthCredential.from_dict(data)
+        elif cred_type == "api":
+            return APICredential.from_dict(data)
+        return None

@@ -1,31 +1,19 @@
-"""Auth module for Glee credentials."""
+"""Auth module for Glee connections."""
 
 from glee.auth.storage import (
     APICredential,
+    ConnectionStorage,
     Credential,
     OAuthCredential,
     SDK,
     VENDOR_URLS,
-    add,
-    all,
-    find,
-    find_one,
-    get,
-    remove,
-    update,
 )
 
 __all__ = [
     "APICredential",
+    "ConnectionStorage",
     "Credential",
     "OAuthCredential",
     "SDK",
     "VENDOR_URLS",
-    "add",
-    "all",
-    "find",
-    "find_one",
-    "get",
-    "remove",
-    "update",
 ]

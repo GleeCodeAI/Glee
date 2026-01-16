@@ -365,12 +365,12 @@ async def get_valid_token() -> tuple[str, str | None]:
     """
     creds = get_credentials("codex")
     if not isinstance(creds, OAuthCredentials):
-        raise ValueError("Codex OAuth not configured. Run: glee oauth codex")
+        raise ValueError("Codex OAuth not configured. Run: glee connect codex")
 
     if creds.is_expired():
         new_tokens = await refresh_access_token(creds.refresh_token)
         if new_tokens is None:
-            raise ValueError("Token refresh failed. Run: glee oauth codex")
+            raise ValueError("Token refresh failed. Run: glee connect codex")
 
         # Save refreshed tokens
         new_creds = OAuthCredentials(

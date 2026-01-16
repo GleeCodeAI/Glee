@@ -66,7 +66,7 @@ Automatic context management for Claude Code sessions.
 ```bash
 # Setup
 glee init claude              # Initialize project for Claude Code
-glee auth status              # Show configured providers
+glee connect status           # Show connected providers
 
 # Memory
 glee memory overview          # Show project memory

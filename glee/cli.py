@@ -1608,9 +1608,9 @@ def mcp():
     asyncio.run(run_server())
 
 
-# Auth subcommands (unified)
-auth_app = typer.Typer(help="Authentication management")
-app.add_typer(auth_app, name="auth")
+# Connect subcommands (provider management)
+connect_app = typer.Typer(help="Connect AI providers")
+app.add_typer(connect_app, name="connect")
 
 
 def _do_codex_oauth() -> bool:
@@ -1636,7 +1636,7 @@ def _do_codex_oauth() -> bool:
         expires_ms = int((time.time() + tokens.expires_in) * 1000)
 
         # Check if we already have a codex credential
-        existing = storage.find_one(vendor="openai", type="oauth")
+        existing = storage.ConnectionStorage.find_one(vendor="openai", type="oauth")
 
         credential = storage.OAuthCredential(
             id=existing.id if existing else "",
@@ -1650,9 +1650,9 @@ def _do_codex_oauth() -> bool:
         )
 
         if existing:
-            storage.update(existing.id, credential)
+            storage.ConnectionStorage.update(existing.id, credential)
         else:
-            storage.add(credential)
+            storage.ConnectionStorage.add(credential)
 
         console.print(f"[{Theme.SUCCESS}]✓ Codex authenticated[/{Theme.SUCCESS}]")
         if account_id:
@@ -1683,7 +1683,7 @@ def _do_copilot_oauth() -> bool:
             return False
 
         # Check if we already have a copilot credential
-        existing = storage.find_one(vendor="github", type="oauth")
+        existing = storage.ConnectionStorage.find_one(vendor="github", type="oauth")
 
         credential = storage.OAuthCredential(
             id=existing.id if existing else "",
@@ -1696,9 +1696,9 @@ def _do_copilot_oauth() -> bool:
         )
 
         if existing:
-            storage.update(existing.id, credential)
+            storage.ConnectionStorage.update(existing.id, credential)
         else:
-            storage.add(credential)
+            storage.ConnectionStorage.add(credential)
 
         console.print(f"[{Theme.SUCCESS}]✓ GitHub Copilot authenticated[/{Theme.SUCCESS}]")
         return True
@@ -1708,13 +1708,13 @@ def _do_copilot_oauth() -> bool:
         return False
 
 
-@auth_app.callback(invoke_without_command=True)
-def auth_tui(ctx: typer.Context):
-    """Add a provider credential.
+@connect_app.callback(invoke_without_command=True)
+def connect_tui(ctx: typer.Context):
+    """Connect AI providers.
 
     Examples:
-        glee auth          # Interactive setup
-        glee auth status   # Show configured providers
+        glee connect          # Interactive setup
+        glee connect status   # Show connected providers
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -1756,7 +1756,7 @@ def auth_tui(ctx: typer.Context):
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default=vendor)
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]", default="")
 
-        storage.add(storage.APICredential(
+        storage.ConnectionStorage.add(storage.APICredential(
             id="",
             label=label,
             sdk="openai",
@@ -1770,7 +1770,7 @@ def auth_tui(ctx: typer.Context):
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="anthropic")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
-            storage.add(storage.APICredential(
+            storage.ConnectionStorage.add(storage.APICredential(
                 id="",
                 label=label,
                 sdk="anthropic",
@@ -1783,7 +1783,7 @@ def auth_tui(ctx: typer.Context):
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="google")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
-            storage.add(storage.APICredential(
+            storage.ConnectionStorage.add(storage.APICredential(
                 id="",
                 label=label,
                 sdk="google",
@@ -1793,23 +1793,23 @@ def auth_tui(ctx: typer.Context):
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
 
-@auth_app.command("status")
-def auth_status():
-    """Show authentication status for all providers.
+@connect_app.command("status")
+def connect_status():
+    """Show connection status for all providers.
 
     Examples:
-        glee auth status
+        glee connect status
     """
     from glee.auth import storage
 
     console.print(padded(Text.assemble(
-        ("🔐 ", "bold"),
-        ("Auth Status", f"bold {Theme.PRIMARY}"),
+        ("🔌 ", "bold"),
+        ("Connected Providers", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
 
-    creds = storage.all()
+    creds = storage.ConnectionStorage.all()
     if not creds:
-        console.print(padded(Text("No credentials configured. Run: glee auth", style=Theme.MUTED)))
+        console.print(padded(Text("No providers connected. Run: glee connect", style=Theme.MUTED)))
         return
 
     auth_tree = Tree(f"[{Theme.HEADER}]Credentials[/{Theme.HEADER}]")
@@ -1834,14 +1834,14 @@ def auth_status():
     console.print(padded(auth_tree))
 
 
-@auth_app.command("list")
-def auth_list():
-    """List all configured credentials."""
+@connect_app.command("list")
+def connect_list():
+    """List all connected providers."""
     from glee.auth import storage
 
-    creds = storage.all()
+    creds = storage.ConnectionStorage.all()
     if not creds:
-        console.print(padded(f"[{Theme.WARNING}]No credentials configured. Run: glee auth[/{Theme.WARNING}]"))
+        console.print(padded(f"[{Theme.WARNING}]No providers connected. Run: glee connect[/{Theme.WARNING}]"))
         return
 
     console.print(padded(Text.assemble(
@@ -1855,20 +1855,37 @@ def auth_list():
     console.print()
 
 
-@auth_app.command("test")
-def auth_test(
-    id: str = typer.Argument(..., help="Credential ID to test"),
+@connect_app.command("test")
+def connect_test(
+    id: str | None = typer.Argument(None, help="Credential ID to test (omit to list all)"),
 ):
-    """Test a credential by making an API call.
+    """Test a provider connection.
 
     Examples:
-        glee auth test a1b2c3d4e5
+        glee connect test           # List providers to choose from
+        glee connect test a1b2c3d4e5
     """
     import httpx
 
     from glee.auth import storage
 
-    cred = storage.get(id)
+    # If no ID provided, show list and prompt
+    if id is None:
+        creds = storage.ConnectionStorage.all()
+        if not creds:
+            console.print(padded(f"[{Theme.WARNING}]No providers connected. Run: glee connect[/{Theme.WARNING}]"))
+            return
+
+        console.print(padded(f"[{Theme.WARNING}]No ID provided. Available providers:[/{Theme.WARNING}]"))
+        console.print()
+        for c in creds:
+            sdk_info = f"[{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]"
+            console.print(f"  [{Theme.MUTED}]{c.id}[/{Theme.MUTED}]  {c.label:<16} {c.vendor:<12} {sdk_info}")
+        console.print()
+        console.print(padded(f"[{Theme.MUTED}]Run: glee connect test <id>[/{Theme.MUTED}]"))
+        return
+
+    cred = storage.ConnectionStorage.get(id)
     if not cred:
         console.print(padded(f"[{Theme.ERROR}]Credential not found: {id}[/{Theme.ERROR}]"))
         return
@@ -2011,27 +2028,57 @@ def auth_test(
         console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e}"))
 
 
-@auth_app.command("add")
-def auth_add(
-    vendor: str = typer.Argument(..., help="Vendor name (e.g., anthropic, openrouter, groq)"),
-    api_key: str = typer.Argument(..., help="API key"),
+@connect_app.command("add")
+def connect_add(
+    vendor: str | None = typer.Argument(None, help="Vendor name (e.g., openrouter, groq, anthropic)"),
+    api_key: str | None = typer.Argument(None, help="API key"),
     label: str | None = typer.Option(None, "--label", "-l", help="Label for this credential"),
     sdk: str = typer.Option("openai", "--sdk", "-s", help="SDK type: openai, anthropic, google"),
-    base_url: str | None = typer.Option(None, "--base-url", "-u", help="Base URL (auto-detected for known vendors)"),
+    base_url: str | None = typer.Option(None, "--base-url", "-u", help="Base URL (required for unknown vendors)"),
 ):
-    """Add an API key credential.
+    """Add an API key provider.
+
+    Known vendors (base URL auto-detected):
+        openrouter, groq, together, fireworks, deepseek, anthropic, google
 
     Examples:
-        glee auth add anthropic sk-ant-xxx
-        glee auth add openrouter sk-or-xxx
-        glee auth add groq gsk-xxx
-        glee auth add custom xxx --base-url https://api.example.com/v1 --sdk openai
+        glee connect add openrouter sk-or-xxx
+        glee connect add anthropic sk-ant-xxx
+        glee connect add custom xxx --base-url https://api.example.com/v1
     """
+    from rich.prompt import Prompt
+
     from glee.auth import storage
+
+    # If no vendor provided, show available vendors
+    if vendor is None:
+        console.print()
+        console.print(f"  [{Theme.HEADER}]Known Vendors[/{Theme.HEADER}]")
+        for name, url in storage.VENDOR_URLS.items():
+            console.print(f"  [{Theme.PRIMARY}]{name:<12}[/{Theme.PRIMARY}] [{Theme.MUTED}]{url}[/{Theme.MUTED}]")
+        console.print()
+        console.print(f"  [{Theme.MUTED}]For custom vendors, use --base-url[/{Theme.MUTED}]")
+        console.print()
+        console.print(f"  [{Theme.MUTED}]Usage: glee connect add <vendor> <api_key>[/{Theme.MUTED}]")
+        return
 
     # Auto-detect base_url for known vendors
     if base_url is None and vendor in storage.VENDOR_URLS:
         base_url = storage.VENDOR_URLS[vendor]
+
+    # Require base_url for unknown vendors
+    if base_url is None and vendor not in storage.VENDOR_URLS:
+        console.print(padded(f"[{Theme.ERROR}]Unknown vendor: {vendor}[/{Theme.ERROR}]"))
+        console.print(padded(f"[{Theme.MUTED}]Use --base-url to specify the API endpoint[/{Theme.MUTED}]"))
+        console.print(padded(f"[{Theme.MUTED}]Example: glee connect add {vendor} <key> --base-url https://api.example.com/v1[/{Theme.MUTED}]"))
+        return
+
+    # Prompt for API key if not provided
+    if api_key is None:
+        api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key for {vendor}[/{Theme.PRIMARY}]")
+        if not api_key:
+            console.print(padded(f"[{Theme.ERROR}]API key is required[/{Theme.ERROR}]"))
+            return
 
     # Auto-detect SDK for known vendors
     if vendor == "anthropic":
@@ -2047,7 +2094,7 @@ def auth_add(
         key=api_key,
         base_url=base_url,
     )
-    storage.add(credential)
+    storage.ConnectionStorage.add(credential)
 
     console.print(padded(Text.assemble(
         (f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] ", ""),
@@ -2055,34 +2102,54 @@ def auth_add(
     )))
 
 
-@auth_app.command("remove")
-def auth_remove(
-    id_or_label: str = typer.Argument(..., help="Credential ID or label to remove"),
+@connect_app.command("remove")
+def connect_remove(
+    id_or_label: str = typer.Argument(..., help="Provider ID or label to remove"),
 ):
-    """Remove a credential by ID or label.
+    """Remove a provider connection.
 
     Examples:
-        glee auth remove a1b2c3d4e5
-        glee auth remove openrouter
+        glee connect remove a1b2c3d4e5
+        glee connect remove openrouter
     """
     from glee.auth import storage
 
     # Try to find by ID first
-    cred = storage.get(id_or_label)
+    cred = storage.ConnectionStorage.get(id_or_label)
     if cred:
-        storage.remove(id_or_label)
+        storage.ConnectionStorage.remove(id_or_label)
         console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Removed {cred.label} ({cred.id})"))
         return
 
     # Try to find by label
-    all_creds = storage.all()
+    all_creds = storage.ConnectionStorage.all()
     for c in all_creds:
         if c.label == id_or_label:
-            storage.remove(c.id)
+            storage.ConnectionStorage.remove(c.id)
             console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Removed {c.label} ({c.id})"))
             return
 
     console.print(padded(f"[{Theme.WARNING}]No credentials found for: {id_or_label}[/{Theme.WARNING}]"))
+
+
+@connect_app.command("codex")
+def connect_codex():
+    """Connect Codex (OpenAI OAuth).
+
+    Examples:
+        glee connect codex
+    """
+    _do_codex_oauth()
+
+
+@connect_app.command("copilot")
+def connect_copilot():
+    """Connect GitHub Copilot (OAuth).
+
+    Examples:
+        glee connect copilot
+    """
+    _do_copilot_oauth()
 
 
 if __name__ == "__main__":
