@@ -351,8 +351,7 @@ Use the OAuth tokens to call Codex API directly.
 # glee/providers/codex.py
 import httpx
 import time
-from glee.auth import get_credentials, save_credentials
-from glee.auth.storage import OAuthCredentials
+from glee.auth.storage import get_credentials, save_credentials, OAuthCredentials
 from glee.auth.codex import refresh_access_token
 
 # ChatGPT backend API (what Codex CLI uses)

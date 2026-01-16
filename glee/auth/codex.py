@@ -189,9 +189,9 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     state: str | None = None
     received_state: str | None = None
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         """Suppress default logging."""
-        pass
+        del format, args  # Unused
 
     def do_GET(self) -> None:
         """Handle GET request (OAuth callback)."""

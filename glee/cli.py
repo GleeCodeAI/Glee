@@ -1608,53 +1608,33 @@ def mcp():
     asyncio.run(run_server())
 
 
-# OAuth subcommands
-oauth_app = typer.Typer(help="OAuth authentication")
-app.add_typer(oauth_app, name="oauth")
+# Auth subcommands (unified)
+auth_app = typer.Typer(help="Authentication management")
+app.add_typer(auth_app, name="auth")
 
 
-@oauth_app.command("codex")
-def oauth_codex():
-    """Authenticate with Codex API using OAuth.
-
-    Opens a browser for authentication and stores credentials in ~/.glee/auth/codex-oauth.yml.
-
-    Examples:
-        glee oauth codex
-    """
+def _do_codex_oauth() -> bool:
+    """Run Codex OAuth flow. Returns True on success."""
     import asyncio
     import time
 
     from glee.auth.codex import authenticate, extract_account_id
     from glee.auth.storage import OAuthCredentials, save_credentials
 
-    console.print(padded(Text.assemble(
-        ("🔐 ", "bold"),
-        ("Codex OAuth", f"bold {Theme.PRIMARY}"),
-    ), bottom=0))
-
     try:
         tokens, error = asyncio.run(authenticate())
 
         if error:
-            console.print(padded(Panel(
-                f"[{Theme.ERROR}]{error}[/{Theme.ERROR}]",
-                title=f"[{Theme.ERROR}]Authentication Failed[/{Theme.ERROR}]",
-                border_style=Theme.ERROR
-            )))
-            raise typer.Exit(1)
+            console.print(f"[{Theme.ERROR}]Authentication failed: {error}[/{Theme.ERROR}]")
+            return False
 
         if not tokens:
-            console.print(padded(f"[{Theme.ERROR}]No tokens received[/{Theme.ERROR}]"))
-            raise typer.Exit(1)
+            console.print(f"[{Theme.ERROR}]No tokens received[/{Theme.ERROR}]")
+            return False
 
-        # Extract account ID from JWT
         account_id = extract_account_id(tokens.access_token)
-
-        # Calculate expiry timestamp
         expires_at = int(time.time()) + tokens.expires_in
 
-        # Save credentials
         credentials = OAuthCredentials(
             access_token=tokens.access_token,
             refresh_token=tokens.refresh_token,
@@ -1663,25 +1643,188 @@ def oauth_codex():
         )
         save_credentials("codex", credentials)
 
-        # Show success
-        success_tree = Tree(f"[{Theme.SUCCESS}]✓ Authentication successful[/{Theme.SUCCESS}]")
-        success_tree.add(f"[{Theme.MUTED}]Saved to:[/{Theme.MUTED}] ~/.glee/auth/codex-oauth.yml")
+        console.print(f"[{Theme.SUCCESS}]✓ Codex authenticated[/{Theme.SUCCESS}]")
         if account_id:
-            success_tree.add(f"[{Theme.MUTED}]Account:[/{Theme.MUTED}] [{Theme.PRIMARY}]{account_id}[/{Theme.PRIMARY}]")
-        success_tree.add(f"[{Theme.MUTED}]Expires:[/{Theme.MUTED}] {tokens.expires_in // 3600} hours")
+            console.print(f"  [{Theme.MUTED}]Account:[/{Theme.MUTED}] {account_id}")
+        return True
 
-        console.print(padded(success_tree))
-
-    except typer.Exit:
-        raise
     except Exception as e:
-        console.print(padded(f"[{Theme.ERROR}]Error: {e}[/{Theme.ERROR}]"))
-        raise typer.Exit(1)
+        console.print(f"[{Theme.ERROR}]Error: {e}[/{Theme.ERROR}]")
+        return False
 
 
-# Auth subcommands
-auth_app = typer.Typer(help="API key authentication")
-app.add_typer(auth_app, name="auth")
+@auth_app.callback(invoke_without_command=True)
+def auth_tui(ctx: typer.Context):
+    """Interactive authentication setup.
+
+    Run without subcommand to open TUI menu.
+
+    Examples:
+        glee auth          # Open TUI
+        glee auth status   # Quick status check
+    """
+    # If a subcommand was invoked, don't run TUI
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from rich.prompt import Prompt
+
+    from glee.auth.storage import (
+        OPENAI_ENDPOINTS,
+        get_credentials, save_credentials, delete_credentials,
+        list_custom_providers, save_custom_provider, delete_custom_provider,
+        OAuthCredentials, APIKeyCredentials, CustomProvider,
+    )
+
+    def _check_configured(sdk: str) -> bool:
+        """Check if an SDK is configured."""
+        if sdk == "codex":
+            return get_credentials("codex") is not None
+        elif sdk == "gemini":
+            return get_credentials("gemini") is not None
+        elif sdk == "openai":
+            # Check if any OpenAI-compatible provider is configured
+            return len(list_custom_providers()) > 0
+        elif sdk == "anthropic":
+            return get_credentials("claude") is not None
+        return False
+
+    # SDK categories
+    sdk_options = [
+        ("codex", "Codex", "OpenAI OAuth"),
+        ("gemini", "Gemini", "Google OAuth"),
+        ("openai", "OpenAI SDK", "OpenRouter, Groq, Mistral, etc."),
+        ("anthropic", "Anthropic SDK", "Claude API"),
+    ]
+
+    while True:
+        console.print()
+        console.print(padded(Text.assemble(
+            ("🔐 ", "bold"),
+            ("Glee Auth", f"bold {Theme.PRIMARY}"),
+        ), bottom=0))
+
+        # Build menu - show configured status
+        console.print(f"  [{Theme.HEADER}]SDK Types[/{Theme.HEADER}]")
+        for i, (key, name, desc) in enumerate(sdk_options, 1):
+            configured = _check_configured(key)
+            status = f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}]" if configured else f"[{Theme.MUTED}]○[/{Theme.MUTED}]"
+            console.print(f"  {status} [{Theme.PRIMARY}]{i}[/{Theme.PRIMARY}]  {name:<16} [{Theme.MUTED}]{desc}[/{Theme.MUTED}]")
+
+        console.print()
+        console.print(f"  [{Theme.HEADER}]Actions[/{Theme.HEADER}]")
+        console.print(f"  [{Theme.PRIMARY}] s[/{Theme.PRIMARY}]  Status")
+        console.print(f"  [{Theme.PRIMARY}] x[/{Theme.PRIMARY}]  Logout")
+        console.print(f"  [{Theme.PRIMARY}] q[/{Theme.PRIMARY}]  Quit")
+
+        console.print()
+        choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select[/{Theme.PRIMARY}]", default="q")
+
+        if choice == "q":
+            break
+
+        elif choice == "s":  # Status
+            console.print()
+            console.print(f"  [{Theme.HEADER}]Configured[/{Theme.HEADER}]")
+
+            # OAuth providers
+            for provider in ["codex", "gemini"]:
+                creds = get_credentials(provider)
+                if creds and isinstance(creds, OAuthCredentials):
+                    status = f"[{Theme.WARNING}]expired[/{Theme.WARNING}]" if creds.is_expired() else f"[{Theme.SUCCESS}]active[/{Theme.SUCCESS}]"
+                    console.print(f"    [{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {provider.title()} [{Theme.ACCENT}]oauth[/{Theme.ACCENT}] {status}")
+
+            # Anthropic
+            creds = get_credentials("claude")
+            if creds and isinstance(creds, APIKeyCredentials):
+                masked = creds.api_key[:8] + "..." if len(creds.api_key) > 8 else "***"
+                console.print(f"    [{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Claude [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
+
+            # OpenAI-compatible providers
+            for p in list_custom_providers():
+                masked = p.api_key[:8] + "..." if len(p.api_key) > 8 else "***"
+                console.print(f"    [{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {p.name} [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
+                console.print(f"      [{Theme.MUTED}]{p.base_url}[/{Theme.MUTED}]")
+
+        elif choice == "x":  # Logout
+            console.print()
+            console.print(f"  [{Theme.HEADER}]Configured:[/{Theme.HEADER}]")
+
+            # Build list of configured providers
+            configured: list[tuple[str, str, str]] = []  # (type, key, name)
+
+            for provider in ["codex", "gemini"]:
+                if get_credentials(provider):
+                    configured.append(("oauth", provider, provider.title()))
+
+            if get_credentials("claude"):
+                configured.append(("apikey", "claude", "Claude"))
+
+            for p in list_custom_providers():
+                configured.append(("custom", p.name, p.name))
+
+            if not configured:
+                console.print(f"    [{Theme.MUTED}]No providers configured[/{Theme.MUTED}]")
+                continue
+
+            for i, (_, _, name) in enumerate(configured, 1):
+                console.print(f"    [{Theme.PRIMARY}]{i}[/{Theme.PRIMARY}]  {name}")
+
+            logout_choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select to logout[/{Theme.PRIMARY}]", default="")
+            if logout_choice.isdigit() and 1 <= int(logout_choice) <= len(configured):
+                ptype, key, name = configured[int(logout_choice) - 1]
+                if ptype in ("oauth", "apikey"):
+                    delete_credentials(key)
+                else:
+                    delete_custom_provider(key)
+                console.print(f"  [{Theme.SUCCESS}]✓ Logged out from {name}[/{Theme.SUCCESS}]")
+
+        elif choice == "1":  # Codex OAuth
+            console.print()
+            _do_codex_oauth()
+
+        elif choice == "2":  # Gemini OAuth
+            console.print()
+            console.print(f"  [{Theme.WARNING}]Gemini OAuth not implemented yet[/{Theme.WARNING}]")
+            console.print(f"  [{Theme.MUTED}]Use API key instead:[/{Theme.MUTED}]")
+            api_key = Prompt.ask(f"  [{Theme.PRIMARY}]Gemini API key[/{Theme.PRIMARY}]", default="")
+            if api_key:
+                save_credentials("gemini", APIKeyCredentials(api_key=api_key))
+                console.print(f"  [{Theme.SUCCESS}]✓ Gemini API key saved[/{Theme.SUCCESS}]")
+
+        elif choice == "3":  # OpenAI SDK
+            console.print()
+            console.print(f"  [{Theme.HEADER}]OpenAI-compatible endpoints[/{Theme.HEADER}]")
+
+            endpoints = list(OPENAI_ENDPOINTS.items())
+            for i, (name, url) in enumerate(endpoints, 1):
+                console.print(f"    [{Theme.PRIMARY}]{i}[/{Theme.PRIMARY}]  {name:<12} [{Theme.MUTED}]{url}[/{Theme.MUTED}]")
+            console.print(f"    [{Theme.PRIMARY}]c[/{Theme.PRIMARY}]  Custom URL")
+
+            ep_choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select[/{Theme.PRIMARY}]", default="")
+
+            if ep_choice == "c":
+                # Custom endpoint
+                custom_name = Prompt.ask(f"  [{Theme.PRIMARY}]Name[/{Theme.PRIMARY}]")
+                base_url = Prompt.ask(f"  [{Theme.PRIMARY}]Base URL[/{Theme.PRIMARY}]", default="https://api.example.com/v1")
+                api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]", default="")
+                if custom_name and base_url:
+                    provider = CustomProvider(name=custom_name, base_url=base_url, api_key=api_key)
+                    save_custom_provider(provider)
+                    console.print(f"  [{Theme.SUCCESS}]✓ Added {custom_name}[/{Theme.SUCCESS}]")
+            elif ep_choice.isdigit() and 1 <= int(ep_choice) <= len(endpoints):
+                name, url = endpoints[int(ep_choice) - 1]
+                api_key = Prompt.ask(f"  [{Theme.PRIMARY}]{name} API key[/{Theme.PRIMARY}]", default="")
+                provider = CustomProvider(name=name, base_url=url, api_key=api_key)
+                save_custom_provider(provider)
+                console.print(f"  [{Theme.SUCCESS}]✓ {name} configured[/{Theme.SUCCESS}]")
+
+        elif choice == "4":  # Anthropic SDK
+            console.print()
+            api_key = Prompt.ask(f"  [{Theme.PRIMARY}]Claude API key[/{Theme.PRIMARY}]")
+            if api_key:
+                save_credentials("claude", APIKeyCredentials(api_key=api_key))
+                console.print(f"  [{Theme.SUCCESS}]✓ Claude API key saved[/{Theme.SUCCESS}]")
 
 
 @auth_app.command("status")
@@ -1691,14 +1834,15 @@ def auth_status():
     Examples:
         glee auth status
     """
-    from glee.auth.storage import PROVIDERS, get_credentials, OAuthCredentials, APIKeyCredentials
+    from glee.auth.storage import PROVIDERS, get_credentials, OAuthCredentials, APIKeyCredentials, list_custom_providers
 
     console.print(padded(Text.assemble(
         ("🔐 ", "bold"),
         ("Auth Status", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
 
-    auth_tree = Tree(f"[{Theme.HEADER}]Providers[/{Theme.HEADER}]")
+    # Built-in providers
+    auth_tree = Tree(f"[{Theme.HEADER}]Built-in Providers[/{Theme.HEADER}]")
 
     for provider in PROVIDERS:
         creds = get_credentials(provider)
@@ -1716,7 +1860,24 @@ def auth_status():
             masked = creds.api_key[:8] + "..." if len(creds.api_key) > 8 else "***"
             auth_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {provider} [{Theme.ACCENT}]api_key[/{Theme.ACCENT}] [{Theme.MUTED}]{masked}[/{Theme.MUTED}]")
 
-    console.print(padded(auth_tree))
+    console.print(padded(auth_tree, bottom=0))
+
+    # Custom providers
+    custom_providers = list_custom_providers()
+    if custom_providers:
+        custom_tree = Tree(f"[{Theme.HEADER}]Custom Providers[/{Theme.HEADER}]")
+        for p in custom_providers:
+            status = f"[{Theme.SUCCESS}]enabled[/{Theme.SUCCESS}]" if p.enabled else f"[{Theme.MUTED}]disabled[/{Theme.MUTED}]"
+            masked = p.api_key[:8] + "..." if len(p.api_key) > 8 else "***"
+            branch = custom_tree.add(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {p.name} {status}")
+            branch.add(f"[{Theme.MUTED}]base_url:[/{Theme.MUTED}] {p.base_url}")
+            branch.add(f"[{Theme.MUTED}]api_key:[/{Theme.MUTED}] {masked}")
+        console.print(padded(custom_tree, top=0))
+    else:
+        console.print(padded(Text(
+            "No custom providers. Run: glee auth",
+            style=Theme.MUTED
+        ), top=0))
 
 
 @auth_app.command("set")
@@ -1782,6 +1943,168 @@ def auth_logout(
         console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Removed {provider} credentials"))
     else:
         console.print(padded(f"[{Theme.WARNING}]No credentials found for {provider}[/{Theme.WARNING}]"))
+
+
+# Provider subcommands (custom providers)
+provider_app = typer.Typer(help="Custom provider management (OpenRouter, Ollama, etc.)")
+app.add_typer(provider_app, name="provider")
+
+
+@provider_app.command("templates")
+def provider_templates():
+    """Show available provider templates.
+
+    Examples:
+        glee provider templates
+    """
+    from glee.auth.storage import CUSTOM_PROVIDER_TEMPLATES
+
+    console.print(padded(Text.assemble(
+        ("📦 ", "bold"),
+        ("Provider Templates", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+
+    for name, template in CUSTOM_PROVIDER_TEMPLATES.items():
+        tree = Tree(f"[{Theme.ACCENT}]{name}[/{Theme.ACCENT}]")
+        tree.add(f"[{Theme.MUTED}]base_url:[/{Theme.MUTED}] {template.base_url}")
+        if template.models:
+            models_branch = tree.add(f"[{Theme.MUTED}]models:[/{Theme.MUTED}]")
+            for m in template.models:
+                models_branch.add(f"{m.alias} → [{Theme.PRIMARY}]{m.name}[/{Theme.PRIMARY}]")
+        console.print(padded(tree, top=0, bottom=0))
+
+    console.print(padded(Text(
+        "Use: glee provider add <template> <api_key>",
+        style=Theme.MUTED
+    ), top=1))
+
+
+@provider_app.command("add")
+def provider_add(
+    template: str = typer.Argument(..., help="Template name (openrouter, together, ollama, z.ai)"),
+    api_key: str = typer.Argument(..., help="API key for the provider"),
+):
+    """Add a custom provider from a template.
+
+    Examples:
+        glee provider add openrouter sk-or-xxx
+        glee provider add together xxx
+        glee provider add ollama dummy
+    """
+    from glee.auth.storage import CUSTOM_PROVIDER_TEMPLATES, save_custom_provider
+
+    if template not in CUSTOM_PROVIDER_TEMPLATES:
+        console.print(padded(Panel(
+            f"Unknown template: [{Theme.ERROR}]{template}[/{Theme.ERROR}]\n\n"
+            f"Available: [{Theme.PRIMARY}]{', '.join(CUSTOM_PROVIDER_TEMPLATES.keys())}[/{Theme.PRIMARY}]",
+            title=f"[{Theme.ERROR}]Error[/{Theme.ERROR}]",
+            border_style=Theme.ERROR
+        )))
+        raise typer.Exit(1)
+
+    # Create provider from template
+    provider_template = CUSTOM_PROVIDER_TEMPLATES[template]
+    from glee.auth.storage import CustomProvider
+    provider = CustomProvider(
+        name=provider_template.name,
+        type=provider_template.type,
+        base_url=provider_template.base_url,
+        api_key=api_key,
+        models=provider_template.models,
+        enabled=True,
+    )
+
+    save_custom_provider(provider)
+
+    console.print(padded(Text.assemble(
+        (f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] ", ""),
+        (f"Added {template} provider", ""),
+    )))
+    console.print(padded(Text(f"Saved to: ~/.glee/auth/custom/{template}.yml", style=Theme.MUTED), top=0))
+
+
+@provider_app.command("add-custom")
+def provider_add_custom(
+    name: str = typer.Argument(..., help="Provider name"),
+    base_url: str = typer.Option(..., "--base-url", "-u", help="API base URL"),
+    api_key: str = typer.Option(..., "--api-key", "-k", help="API key"),
+):
+    """Add a custom OpenAI-compatible provider.
+
+    Examples:
+        glee provider add-custom myapi --base-url https://api.example.com/v1 --api-key xxx
+    """
+    from glee.auth.storage import CustomProvider, save_custom_provider
+
+    provider = CustomProvider(
+        name=name,
+        type="openai-compatible",
+        base_url=base_url,
+        api_key=api_key,
+        enabled=True,
+    )
+
+    save_custom_provider(provider)
+
+    console.print(padded(Text.assemble(
+        (f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] ", ""),
+        (f"Added custom provider: {name}", ""),
+    )))
+
+
+@provider_app.command("list")
+def provider_list():
+    """List all custom providers.
+
+    Examples:
+        glee provider list
+    """
+    from glee.auth.storage import list_custom_providers
+
+    providers = list_custom_providers()
+
+    if not providers:
+        console.print(padded(f"[{Theme.WARNING}]No custom providers configured[/{Theme.WARNING}]"))
+        console.print(padded(Text("Use: glee provider add <template> <api_key>", style=Theme.MUTED), top=0))
+        return
+
+    console.print(padded(Text.assemble(
+        ("📦 ", "bold"),
+        ("Custom Providers", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+
+    for p in providers:
+        status = f"[{Theme.SUCCESS}]enabled[/{Theme.SUCCESS}]" if p.enabled else f"[{Theme.MUTED}]disabled[/{Theme.MUTED}]"
+        masked_key = p.api_key[:8] + "..." if len(p.api_key) > 8 else "***"
+
+        tree = Tree(f"[{Theme.ACCENT}]{p.name}[/{Theme.ACCENT}] {status}")
+        tree.add(f"[{Theme.MUTED}]type:[/{Theme.MUTED}] {p.type}")
+        tree.add(f"[{Theme.MUTED}]base_url:[/{Theme.MUTED}] {p.base_url}")
+        tree.add(f"[{Theme.MUTED}]api_key:[/{Theme.MUTED}] {masked_key}")
+        if p.models:
+            models_branch = tree.add(f"[{Theme.MUTED}]models:[/{Theme.MUTED}]")
+            for m in p.models:
+                models_branch.add(f"{m.alias} → {m.name}")
+
+        console.print(padded(tree, top=0, bottom=0))
+
+
+@provider_app.command("remove")
+def provider_remove(
+    name: str = typer.Argument(..., help="Provider name to remove"),
+):
+    """Remove a custom provider.
+
+    Examples:
+        glee provider remove openrouter
+    """
+    from glee.auth.storage import delete_custom_provider
+
+    deleted = delete_custom_provider(name)
+    if deleted:
+        console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Removed provider: {name}"))
+    else:
+        console.print(padded(f"[{Theme.WARNING}]Provider not found: {name}[/{Theme.WARNING}]"))
 
 
 if __name__ == "__main__":
