@@ -1618,8 +1618,8 @@ def _do_codex_oauth() -> bool:
     import asyncio
     import time
 
-    from glee.auth.codex import authenticate, extract_account_id
-    from glee.auth import storage
+    from glee.connect.codex import authenticate, extract_account_id
+    from glee.connect import storage
 
     try:
         tokens, error = asyncio.run(authenticate())
@@ -1635,6 +1635,9 @@ def _do_codex_oauth() -> bool:
         account_id = extract_account_id(tokens.access_token)
         expires_ms = int((time.time() + tokens.expires_in) * 1000)
 
+        # Use API key if available (from token exchange), otherwise fall back to access_token
+        access_token = tokens.api_key if tokens.api_key else tokens.access_token
+
         # Check if we already have a codex credential
         existing = storage.ConnectionStorage.find_one(vendor="openai", type="oauth")
 
@@ -1644,7 +1647,7 @@ def _do_codex_oauth() -> bool:
             sdk="openai",
             vendor="openai",
             refresh=tokens.refresh_token,
-            access=tokens.access_token,
+            access=access_token,
             expires=expires_ms,
             account_id=account_id,
         )
@@ -1657,6 +1660,8 @@ def _do_codex_oauth() -> bool:
         console.print(f"[{Theme.SUCCESS}]✓ Codex authenticated[/{Theme.SUCCESS}]")
         if account_id:
             console.print(f"  [{Theme.MUTED}]Account:[/{Theme.MUTED}] {account_id}")
+        if tokens.api_key:
+            console.print(f"  [{Theme.MUTED}]API Key:[/{Theme.MUTED}] {tokens.api_key[:20]}...")
         return True
 
     except Exception as e:
@@ -1668,8 +1673,8 @@ def _do_copilot_oauth() -> bool:
     """Run GitHub Copilot OAuth flow. Returns True on success."""
     import asyncio
 
-    from glee.auth.copilot import authenticate
-    from glee.auth import storage
+    from glee.connect.copilot import authenticate
+    from glee.connect import storage
 
     try:
         tokens, error = asyncio.run(authenticate())
@@ -1719,16 +1724,27 @@ def connect_tui(ctx: typer.Context):
     if ctx.invoked_subcommand is not None:
         return
 
+    from rich import box
     from rich.prompt import Prompt
-    from glee.auth import storage
+    from rich.table import Table
+
+    from glee.connect import storage
+
+    # Build connection type menu
+    table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.ROUNDED, title="Connect AI Provider", title_style=f"bold {Theme.PRIMARY}")
+    table.add_column("#", style=f"bold {Theme.PRIMARY}", justify="right")
+    table.add_column("Type", style=Theme.PRIMARY)
+    table.add_column("Description", style=Theme.MUTED)
+
+    table.add_row("1", "Codex", "OpenAI OAuth")
+    table.add_row("2", "Copilot", "GitHub OAuth")
+    table.add_row("3", "OpenAI SDK", "OpenRouter, Groq, Together, etc.")
+    table.add_row("4", "Anthropic", "Direct API (api.anthropic.com)")
+    table.add_row("5", "Vertex AI", "Google Cloud (Claude & Gemini)")
+    table.add_row("6", "Bedrock", "AWS (Claude)")
 
     console.print()
-    console.print(f"  [{Theme.HEADER}]Select SDK[/{Theme.HEADER}]")
-    console.print(f"  [{Theme.PRIMARY}]1[/{Theme.PRIMARY}]  Codex        [{Theme.MUTED}]OpenAI OAuth[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]2[/{Theme.PRIMARY}]  Copilot      [{Theme.MUTED}]GitHub OAuth[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]3[/{Theme.PRIMARY}]  OpenAI SDK   [{Theme.MUTED}]OpenRouter, Groq, etc.[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]4[/{Theme.PRIMARY}]  Anthropic    [{Theme.MUTED}]Claude API[/{Theme.MUTED}]")
-    console.print(f"  [{Theme.PRIMARY}]5[/{Theme.PRIMARY}]  Google       [{Theme.MUTED}]Gemini API[/{Theme.MUTED}]")
+    console.print(Padding(table, (0, 2)))
     console.print()
 
     choice = Prompt.ask(f"  [{Theme.PRIMARY}]Select[/{Theme.PRIMARY}]", show_default=False, default="")
@@ -1740,13 +1756,21 @@ def connect_tui(ctx: typer.Context):
         _do_copilot_oauth()
 
     elif choice == "3":  # OpenAI SDK
-        console.print()
         vendors = list(storage.VENDOR_URLS.items())
+
+        vendor_table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.ROUNDED, title="OpenAI-Compatible Providers", title_style=f"bold {Theme.PRIMARY}")
+        vendor_table.add_column("#", style=f"bold {Theme.PRIMARY}", justify="right")
+        vendor_table.add_column("Vendor", style=Theme.PRIMARY)
+        vendor_table.add_column("Base URL", style=Theme.MUTED)
+
         for i, (name, url) in enumerate(vendors, 1):
-            console.print(f"  [{Theme.PRIMARY}]{i}[/{Theme.PRIMARY}]  {name:<12} [{Theme.MUTED}]{url}[/{Theme.MUTED}]")
+            vendor_table.add_row(str(i), name, url)
+
+        console.print()
+        console.print(Padding(vendor_table, (0, 2)))
         console.print()
 
-        ep_choice = Prompt.ask(f"  [{Theme.PRIMARY}]Vendor[/{Theme.PRIMARY}]", show_default=False, default="")
+        ep_choice = Prompt.ask(f"  [{Theme.PRIMARY}]Vendor (number or name)[/{Theme.PRIMARY}]", show_default=False, default="")
         if ep_choice.isdigit() and 1 <= int(ep_choice) <= len(vendors):
             vendor, base_url = vendors[int(ep_choice) - 1]
         else:
@@ -1766,7 +1790,7 @@ def connect_tui(ctx: typer.Context):
         ))
         console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "4":  # Anthropic
+    elif choice == "4":  # Anthropic direct
         label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="anthropic")
         api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
         if api_key:
@@ -1776,21 +1800,45 @@ def connect_tui(ctx: typer.Context):
                 sdk="anthropic",
                 vendor="anthropic",
                 key=api_key,
+                base_url="https://api.anthropic.com",
             ))
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
-    elif choice == "5":  # Google
-        label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="google")
-        api_key = Prompt.ask(f"  [{Theme.PRIMARY}]API key[/{Theme.PRIMARY}]")
-        if api_key:
+    elif choice == "5":  # Vertex AI
+        console.print()
+        console.print(f"  [{Theme.MUTED}]Vertex AI uses Google Cloud credentials (ADC)[/{Theme.MUTED}]")
+        console.print(f"  [{Theme.MUTED}]Run: gcloud auth application-default login[/{Theme.MUTED}]")
+        console.print()
+        project_id = Prompt.ask(f"  [{Theme.PRIMARY}]GCP Project ID[/{Theme.PRIMARY}]")
+        region = Prompt.ask(f"  [{Theme.PRIMARY}]Region[/{Theme.PRIMARY}]", default="us-central1")
+        label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="vertex")
+        if project_id:
             storage.ConnectionStorage.add(storage.APICredential(
                 id="",
                 label=label,
-                sdk="google",
+                sdk="vertex",
                 vendor="google",
-                key=api_key,
+                key=project_id,  # Store project ID in key field
+                base_url=region,  # Store region in base_url field
             ))
             console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
+
+    elif choice == "6":  # Bedrock
+        console.print()
+        console.print(f"  [{Theme.MUTED}]Bedrock uses AWS credentials[/{Theme.MUTED}]")
+        console.print(f"  [{Theme.MUTED}]Configure: aws configure[/{Theme.MUTED}]")
+        console.print()
+        region = Prompt.ask(f"  [{Theme.PRIMARY}]AWS Region[/{Theme.PRIMARY}]", default="us-east-1")
+        label = Prompt.ask(f"  [{Theme.PRIMARY}]Label[/{Theme.PRIMARY}]", default="bedrock")
+        storage.ConnectionStorage.add(storage.APICredential(
+            id="",
+            label=label,
+            sdk="bedrock",
+            vendor="aws",
+            key="",  # Uses AWS credentials from environment
+            base_url=region,  # Store region in base_url field
+        ))
+        console.print(f"  [{Theme.SUCCESS}]✓ {label} saved[/{Theme.SUCCESS}]")
 
 
 @connect_app.command("status")
@@ -1800,7 +1848,7 @@ def connect_status():
     Examples:
         glee connect status
     """
-    from glee.auth import storage
+    from glee.connect import storage
 
     console.print(padded(Text.assemble(
         ("🔌 ", "bold"),
@@ -1837,7 +1885,7 @@ def connect_status():
 @connect_app.command("list")
 def connect_list():
     """List all connected providers."""
-    from glee.auth import storage
+    from glee.connect import storage
 
     creds = storage.ConnectionStorage.all()
     if not creds:
@@ -1865,9 +1913,7 @@ def connect_test(
         glee connect test           # List providers to choose from
         glee connect test a1b2c3d4e5
     """
-    import httpx
-
-    from glee.auth import storage
+    from glee.connect import storage
 
     # If no ID provided, show list and prompt
     if id is None:
@@ -1876,11 +1922,22 @@ def connect_test(
             console.print(padded(f"[{Theme.WARNING}]No providers connected. Run: glee connect[/{Theme.WARNING}]"))
             return
 
+        from rich import box
+        from rich.table import Table
+
         console.print(padded(f"[{Theme.WARNING}]No ID provided. Available providers:[/{Theme.WARNING}]"))
         console.print()
+
+        table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.ROUNDED)
+        table.add_column("ID", style=Theme.MUTED)
+        table.add_column("Label", style=Theme.PRIMARY)
+        table.add_column("Vendor")
+        table.add_column("SDK", style=Theme.ACCENT)
+
         for c in creds:
-            sdk_info = f"[{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]"
-            console.print(f"  [{Theme.MUTED}]{c.id}[/{Theme.MUTED}]  {c.label:<16} {c.vendor:<12} {sdk_info}")
+            table.add_row(c.id, c.label, c.vendor, c.sdk)
+
+        console.print(Padding(table, (0, 2)))
         console.print()
         console.print(padded(f"[{Theme.MUTED}]Run: glee connect test <id>[/{Theme.MUTED}]"))
         return
@@ -1898,132 +1955,148 @@ def connect_test(
         (f"Testing {label}", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
 
+    # Simple test: send "Hi", expect a response
+    import httpx
+
     try:
         if c.sdk == "openai":
+            # OpenAI-compatible API (Codex, Copilot, OpenRouter, etc.)
             if isinstance(c, storage.OAuthCredential):
-                # OAuth credentials - test with minimal completion
+                token = c.access
+                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                if c.account_id:
+                    headers["ChatGPT-Account-Id"] = c.account_id
+
                 if c.vendor == "github":
-                    # GitHub Copilot
-                    url = "https://api.githubcopilot.com/chat/completions"
-                    headers = {
-                        "Authorization": f"Bearer {c.access}",
-                        "Content-Type": "application/json",
-                    }
-                    json_body = {
-                        "model": "gpt-4o",
-                        "max_tokens": 1,
-                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
-                    }
-                elif c.vendor == "openai":
+                    # GitHub Copilot - uses chat completions
+                    resp = httpx.post(
+                        "https://api.githubcopilot.com/chat/completions",
+                        headers=headers,
+                        json={"model": "gpt-5-nano", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    reply = data["choices"][0]["message"]["content"].strip()
+                else:
                     # Codex OAuth - uses ChatGPT backend API with streaming
                     url = "https://chatgpt.com/backend-api/codex/responses"
-                    headers = {
-                        "Authorization": f"Bearer {c.access}",
+                    codex_headers = {
+                        "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     }
                     if c.account_id:
-                        headers["ChatGPT-Account-Id"] = c.account_id
+                        codex_headers["ChatGPT-Account-Id"] = c.account_id
                     json_body = {
                         "model": "gpt-5.1-codex-mini",
                         "instructions": "You are a helpful assistant.",
-                        "input": [{"role": "user", "content": "Hi. Please say hello back."}],
+                        "input": [{"role": "user", "content": "Say Hello"}],
                         "store": False,
                         "stream": True,
                     }
-                    # Streaming request
-                    with httpx.stream("POST", url, headers=headers, json=json_body, timeout=30) as response:
+                    with httpx.stream("POST", url, headers=codex_headers, json=json_body, timeout=30) as response:
                         if response.status_code == 200:
-                            # Read first chunk to verify stream works
+                            reply = ""
                             for chunk in response.iter_lines():
-                                if chunk:
-                                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Credential valid"))
-                                    break
+                                if chunk and chunk.startswith("data:"):
+                                    import json as json_module
+                                    try:
+                                        data = json_module.loads(chunk[5:].strip())
+                                        if data.get("type") == "response.output_text.delta":
+                                            reply += data.get("delta", "")
+                                    except json_module.JSONDecodeError:
+                                        pass
+                            if not reply:
+                                reply = "Connected (stream OK)"
                         else:
-                            error_text = response.read().decode()[:100]
-                            console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {error_text}"))
-                    return
-                else:
-                    url = "https://api.openai.com/v1/chat/completions"
-                    headers = {
-                        "Authorization": f"Bearer {c.access}",
-                        "Content-Type": "application/json",
-                    }
-                    json_body = {
-                        "model": "gpt-4o-mini",
-                        "max_tokens": 100,
-                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
-                    }
-
-                response = httpx.post(url, headers=headers, json=json_body, timeout=15)
-
-                if response.status_code == 200:
-                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Credential valid"))
-                else:
-                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {response.text[:100]}"))
+                            error_text = response.read().decode()[:200]
+                            raise Exception(f"HTTP {response.status_code}: {error_text}")
             else:
-                # API key credentials - test with /models endpoint
-                base_url = c.base_url or "https://api.openai.com/v1"
-                headers = {"Authorization": f"Bearer {c.key}"}
-
-                response = httpx.get(f"{base_url}/models", headers=headers, timeout=10)
-
-                if response.status_code == 200:
-                    data = response.json()
-                    model_count = len(data.get("data", []))
-                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {model_count} models available"))
-                else:
-                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {response.text[:100]}"))
+                # API key - uses chat completions
+                token = c.key
+                base_url = (c.base_url or "https://api.openai.com/v1").rstrip("/")
+                resp = httpx.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"model": "gpt-5-nano", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                reply = data["choices"][0]["message"]["content"].strip()
+            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
 
         elif c.sdk == "anthropic":
-            # Anthropic SDK - requires API key
             if not isinstance(c, storage.APICredential):
-                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Anthropic requires API key, not OAuth"))
-            else:
-                headers = {
+                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Anthropic requires API key"))
+                return
+
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
                     "x-api-key": c.key,
                     "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                }
-                response = httpx.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers=headers,
-                    json={
-                        "model": "claude-3-haiku-20240307",
-                        "max_tokens": 1,
-                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
-                    },
-                    timeout=10,
-                )
+                    "Content-Type": "application/json",
+                },
+                json={"model": "claude-sonnet-4-20250514", "max_tokens": 100, "messages": [{"role": "user", "content": "Say Hello"}]},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data["content"][0]["text"].strip()
+            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
 
-                if response.status_code == 200:
-                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] API key valid"))
-                elif response.status_code == 401:
-                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Invalid API key"))
-                else:
-                    console.print(padded(f"[{Theme.WARNING}]?[/{Theme.WARNING}] HTTP {response.status_code}"))
-
-        elif c.sdk == "google":
-            # Google/Gemini - requires API key
+        elif c.sdk == "vertex":
             if not isinstance(c, storage.APICredential):
-                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Google requires API key, not OAuth"))
-            else:
-                response = httpx.get(
-                    f"https://generativelanguage.googleapis.com/v1beta/models?key={c.key}",
-                    timeout=10,
-                )
+                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Vertex requires project config"))
+                return
 
-                if response.status_code == 200:
-                    data = response.json()
-                    model_count = len(data.get("models", []))
-                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {model_count} models available"))
-                else:
-                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}"))
+            import google.auth
+            import google.auth.transport.requests
+
+            project_id = c.key
+            region = c.base_url or "us-central1"
+
+            credentials, _ = google.auth.default()  # type: ignore[attr-defined]
+            credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[union-attr]
+
+            resp = httpx.post(
+                f"https://{region}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/publishers/google/models/gemini-2.0-flash:generateContent",
+                headers={"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"},  # type: ignore[union-attr]
+                json={"contents": [{"role": "user", "parts": [{"text": "Say Hello"}]}], "generationConfig": {"maxOutputTokens": 100}},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
+
+        elif c.sdk == "bedrock":
+            if not isinstance(c, storage.APICredential):
+                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Bedrock requires AWS config"))
+                return
+
+            import boto3
+            import json
+
+            region = c.base_url or "us-east-1"
+            bedrock = boto3.client("bedrock-runtime", region_name=region)  # type: ignore[attr-defined]
+
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 100,
+                "messages": [{"role": "user", "content": "Say Hello"}],
+            })
+            response = bedrock.invoke_model(modelId="anthropic.claude-sonnet-4-20250514-v1:0", body=body)  # type: ignore[union-attr]
+            data = json.loads(response["body"].read())  # type: ignore[union-attr]
+            reply = data["content"][0]["text"].strip()
+            console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {reply}"))
 
         else:
             console.print(padded(f"[{Theme.WARNING}]?[/{Theme.WARNING}] Unknown SDK: {c.sdk}"))
 
-    except httpx.TimeoutException:
-        console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Timeout"))
+    except httpx.HTTPStatusError as e:
+        console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e.response.status_code}: {e.response.text[:200]}"))
     except Exception as e:
         console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e}"))
 
@@ -2048,7 +2121,7 @@ def connect_add(
     """
     from rich.prompt import Prompt
 
-    from glee.auth import storage
+    from glee.connect import storage
 
     # If no vendor provided, show available vendors
     if vendor is None:
@@ -2112,7 +2185,7 @@ def connect_remove(
         glee connect remove a1b2c3d4e5
         glee connect remove openrouter
     """
-    from glee.auth import storage
+    from glee.connect import storage
 
     # Try to find by ID first
     cred = storage.ConnectionStorage.get(id_or_label)

@@ -55,6 +55,8 @@ class TokenResponse:
     refresh_token: str
     expires_in: int
     token_type: str = "Bearer"
+    id_token: str = ""
+    api_key: str = ""  # Obtained via token exchange
 
 
 def generate_pkce() -> PKCECodes:
@@ -113,7 +115,27 @@ async def exchange_code_for_tokens(code: str, pkce: PKCECodes) -> TokenResponse:
             refresh_token=data.get("refresh_token", ""),
             expires_in=data.get("expires_in", 3600),
             token_type=data.get("token_type", "Bearer"),
+            id_token=data.get("id_token", ""),
         )
+
+
+async def exchange_token_for_api_key(id_token: str) -> str:
+    """Exchange id_token for an OpenAI API key using token-exchange grant."""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            TOKEN_URL,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "client_id": CLIENT_ID,
+                "subject_token": id_token,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                "requested_token_type": "urn:openai:token-type:api-key",
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data.get("access_token", "")
 
 
 async def refresh_access_token(refresh_token: str) -> TokenResponse:
@@ -383,6 +405,15 @@ async def authenticate() -> tuple[TokenResponse | None, str | None]:
         # Exchange code for tokens
         print("Exchanging code for tokens...")
         tokens = await exchange_code_for_tokens(auth_code, pkce)
+
+        # Exchange id_token for API key
+        if tokens.id_token:
+            print("Exchanging token for API key...")
+            try:
+                api_key = await exchange_token_for_api_key(tokens.id_token)
+                tokens.api_key = api_key
+            except httpx.HTTPStatusError as e:
+                print(f"Warning: Could not get API key: {e.response.status_code}")
 
         return tokens, None
 

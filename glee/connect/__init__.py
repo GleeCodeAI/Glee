@@ -1,6 +1,6 @@
-"""Auth module for Glee connections."""
+"""Connect module for Glee connections."""
 
-from glee.auth.storage import (
+from glee.connect.storage import (
     APICredential,
     ConnectionStorage,
     Credential,
