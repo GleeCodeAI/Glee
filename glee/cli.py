@@ -1834,6 +1834,183 @@ def auth_status():
     console.print(padded(auth_tree))
 
 
+@auth_app.command("list")
+def auth_list():
+    """List all configured credentials."""
+    from glee.auth import storage
+
+    creds = storage.all()
+    if not creds:
+        console.print(padded(f"[{Theme.WARNING}]No credentials configured. Run: glee auth[/{Theme.WARNING}]"))
+        return
+
+    console.print(padded(Text.assemble(
+        ("🔑 ", "bold"),
+        ("Credentials", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+    console.print()
+    for c in creds:
+        sdk_info = f"[{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]"
+        console.print(f"  [{Theme.MUTED}]{c.id}[/{Theme.MUTED}]  {c.label:<16} {c.vendor:<12} {sdk_info}")
+    console.print()
+
+
+@auth_app.command("test")
+def auth_test(
+    id: str = typer.Argument(..., help="Credential ID to test"),
+):
+    """Test a credential by making an API call.
+
+    Examples:
+        glee auth test a1b2c3d4e5
+    """
+    import httpx
+
+    from glee.auth import storage
+
+    cred = storage.get(id)
+    if not cred:
+        console.print(padded(f"[{Theme.ERROR}]Credential not found: {id}[/{Theme.ERROR}]"))
+        return
+
+    c = cred
+    label = f"{c.label} ({c.vendor})"
+
+    console.print(padded(Text.assemble(
+        ("🧪 ", "bold"),
+        (f"Testing {label}", f"bold {Theme.PRIMARY}"),
+    ), bottom=0))
+
+    try:
+        if c.sdk == "openai":
+            if isinstance(c, storage.OAuthCredential):
+                # OAuth credentials - test with minimal completion
+                if c.vendor == "github":
+                    # GitHub Copilot
+                    url = "https://api.githubcopilot.com/chat/completions"
+                    headers = {
+                        "Authorization": f"Bearer {c.access}",
+                        "Content-Type": "application/json",
+                    }
+                    json_body = {
+                        "model": "gpt-4o",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
+                    }
+                elif c.vendor == "openai":
+                    # Codex OAuth - uses ChatGPT backend API with streaming
+                    url = "https://chatgpt.com/backend-api/codex/responses"
+                    headers = {
+                        "Authorization": f"Bearer {c.access}",
+                        "Content-Type": "application/json",
+                    }
+                    if c.account_id:
+                        headers["ChatGPT-Account-Id"] = c.account_id
+                    json_body = {
+                        "model": "gpt-5.1-codex-mini",
+                        "instructions": "You are a helpful assistant.",
+                        "input": [{"role": "user", "content": "Hi. Please say hello back."}],
+                        "store": False,
+                        "stream": True,
+                    }
+                    # Streaming request
+                    with httpx.stream("POST", url, headers=headers, json=json_body, timeout=30) as response:
+                        if response.status_code == 200:
+                            # Read first chunk to verify stream works
+                            for chunk in response.iter_lines():
+                                if chunk:
+                                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Credential valid"))
+                                    break
+                        else:
+                            error_text = response.read().decode()[:100]
+                            console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {error_text}"))
+                    return
+                else:
+                    url = "https://api.openai.com/v1/chat/completions"
+                    headers = {
+                        "Authorization": f"Bearer {c.access}",
+                        "Content-Type": "application/json",
+                    }
+                    json_body = {
+                        "model": "gpt-4o-mini",
+                        "max_tokens": 100,
+                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
+                    }
+
+                response = httpx.post(url, headers=headers, json=json_body, timeout=15)
+
+                if response.status_code == 200:
+                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] Credential valid"))
+                else:
+                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {response.text[:100]}"))
+            else:
+                # API key credentials - test with /models endpoint
+                base_url = c.base_url or "https://api.openai.com/v1"
+                headers = {"Authorization": f"Bearer {c.key}"}
+
+                response = httpx.get(f"{base_url}/models", headers=headers, timeout=10)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    model_count = len(data.get("data", []))
+                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {model_count} models available"))
+                else:
+                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}: {response.text[:100]}"))
+
+        elif c.sdk == "anthropic":
+            # Anthropic SDK - requires API key
+            if not isinstance(c, storage.APICredential):
+                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Anthropic requires API key, not OAuth"))
+            else:
+                headers = {
+                    "x-api-key": c.key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                }
+                response = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json={
+                        "model": "claude-3-haiku-20240307",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "Hi. Please say hello back."}],
+                    },
+                    timeout=10,
+                )
+
+                if response.status_code == 200:
+                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] API key valid"))
+                elif response.status_code == 401:
+                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Invalid API key"))
+                else:
+                    console.print(padded(f"[{Theme.WARNING}]?[/{Theme.WARNING}] HTTP {response.status_code}"))
+
+        elif c.sdk == "google":
+            # Google/Gemini - requires API key
+            if not isinstance(c, storage.APICredential):
+                console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Google requires API key, not OAuth"))
+            else:
+                response = httpx.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={c.key}",
+                    timeout=10,
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    model_count = len(data.get("models", []))
+                    console.print(padded(f"[{Theme.SUCCESS}]✓[/{Theme.SUCCESS}] {model_count} models available"))
+                else:
+                    console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] HTTP {response.status_code}"))
+
+        else:
+            console.print(padded(f"[{Theme.WARNING}]?[/{Theme.WARNING}] Unknown SDK: {c.sdk}"))
+
+    except httpx.TimeoutException:
+        console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] Timeout"))
+    except Exception as e:
+        console.print(padded(f"[{Theme.ERROR}]✗[/{Theme.ERROR}] {e}"))
+
+
 @auth_app.command("add")
 def auth_add(
     vendor: str = typer.Argument(..., help="Vendor name (e.g., anthropic, openrouter, groq)"),
