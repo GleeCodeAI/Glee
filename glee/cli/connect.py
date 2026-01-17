@@ -305,6 +305,9 @@ def connect_status():
 @connect_app.command("list")
 def connect_list():
     """List all connected providers."""
+    from rich import box
+    from rich.table import Table
+
     from glee.connect import storage
 
     creds = storage.ConnectionStorage.all()
@@ -316,10 +319,17 @@ def connect_list():
         ("🔑 ", "bold"),
         ("Credentials", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
-    console.print()
+
+    table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.ROUNDED)
+    table.add_column("ID", style=Theme.MUTED)
+    table.add_column("Label", style=Theme.PRIMARY)
+    table.add_column("Vendor")
+    table.add_column("SDK", style=Theme.ACCENT)
+
     for c in creds:
-        sdk_info = f"[{Theme.ACCENT}]{c.sdk}[/{Theme.ACCENT}]"
-        console.print(f"  [{Theme.MUTED}]{c.id}[/{Theme.MUTED}]  {c.label:<16} {c.vendor:<12} {sdk_info}")
+        table.add_row(c.id, c.label, c.vendor, c.sdk)
+
+    console.print(Padding(table, (0, 2)))
     console.print()
 
 
