@@ -133,7 +133,9 @@ uv run glee --help
 
 ## Why "Glee"?
 
-Because using good tools should bring you joy. And because we couldn't resist the acronym potential.
+A glee club is an ensemble — multiple voices singing in harmony. That's what this toolkit does: brings together memory, code review, and context tools to work as one.
+
+Also, good tools should bring you joy.
 
 ---
 
