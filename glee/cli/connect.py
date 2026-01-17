@@ -350,14 +350,15 @@ def connect_list():
         ("Credentials", f"bold {Theme.PRIMARY}"),
     ), bottom=0))
 
-    table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.ROUNDED)
+    table = Table(show_header=True, header_style=f"bold {Theme.HEADER}", box=box.SIMPLE_HEAD)
+    table.add_column("Type", style=Theme.ACCENT)
     table.add_column("ID", style=Theme.MUTED)
     table.add_column("Label", style=Theme.PRIMARY)
     table.add_column("Vendor")
-    table.add_column("SDK", style=Theme.ACCENT)
+    table.add_column("SDK")
 
     for c in creds:
-        table.add_row(c.id, c.label, c.vendor, c.sdk or "-")
+        table.add_row(c.type, c.id, c.label, c.vendor, c.sdk or "-")
 
     console.print(Padding(table, (0, 2)))
     console.print()
